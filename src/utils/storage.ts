@@ -1,0 +1,179 @@
+import type { BookRecord, LibraryEntry, LoadedBook, ReaderSettings } from "../types/Book";
+
+const DB_NAME = "stillpoint-reader";
+const DB_VERSION = 1;
+const BOOKS_STORE = "books";
+const LIBRARY_STORE = "library";
+const SETTINGS_KEY = "stillpoint:settings:v1";
+const CHECKPOINT_PREFIX = "stillpoint:checkpoint:";
+
+export const DEFAULT_SETTINGS: ReaderSettings = {
+  wpm: 420,
+  fontSize: 76,
+  fontFamily: "sans",
+  adaptiveTiming: true,
+  punctuationPauses: true,
+  sentencePause: 260,
+  commaPause: 90,
+};
+
+export async function listLibrary(): Promise<LibraryEntry[]> {
+  const database = await openDatabase();
+  const entries = await requestAsPromise<LibraryEntry[]>(database.transaction(LIBRARY_STORE, "readonly").objectStore(LIBRARY_STORE).getAll());
+  return entries.sort((first, second) => second.lastOpened - first.lastOpened);
+}
+
+export async function saveNewBook(book: BookRecord): Promise<LoadedBook> {
+  const existing = await getBook(book.id);
+  if (existing) return existing;
+
+  const now = Date.now();
+  const entry: LibraryEntry = {
+    id: book.id,
+    filename: book.filename,
+    totalTokens: book.totalTokens,
+    currentIndex: 0,
+    percentage: 0,
+    lastOpened: now,
+    progressUpdatedAt: now,
+    createdAt: book.createdAt,
+  };
+  const database = await openDatabase();
+  const transaction = database.transaction([BOOKS_STORE, LIBRARY_STORE], "readwrite");
+  transaction.objectStore(BOOKS_STORE).put(book);
+  transaction.objectStore(LIBRARY_STORE).put(entry);
+  await transactionDone(transaction);
+  return { ...book, ...entry };
+}
+
+export async function getBook(id: string): Promise<LoadedBook | null> {
+  const database = await openDatabase();
+  const transaction = database.transaction([BOOKS_STORE, LIBRARY_STORE], "readonly");
+  const [book, entry] = await Promise.all([
+    requestAsPromise<BookRecord | undefined>(transaction.objectStore(BOOKS_STORE).get(id)),
+    requestAsPromise<LibraryEntry | undefined>(transaction.objectStore(LIBRARY_STORE).get(id)),
+  ]);
+  if (!book || !entry) return null;
+
+  const checkpoint = readCheckpoint(id);
+  const currentIndex = checkpoint && checkpoint.savedAt > entry.progressUpdatedAt
+    ? clampIndex(checkpoint.currentIndex, entry.totalTokens)
+    : entry.currentIndex;
+  return { ...book, ...entry, currentIndex, percentage: percentageFor(currentIndex, entry.totalTokens) };
+}
+
+export async function updateBookProgress(id: string, currentIndex: number): Promise<LibraryEntry | null> {
+  const database = await openDatabase();
+  const transaction = database.transaction(LIBRARY_STORE, "readwrite");
+  const store = transaction.objectStore(LIBRARY_STORE);
+  const entry = await requestAsPromise<LibraryEntry | undefined>(store.get(id));
+  if (!entry) return null;
+  const now = Date.now();
+  const next = {
+    ...entry,
+    currentIndex: clampIndex(currentIndex, entry.totalTokens),
+    percentage: percentageFor(currentIndex, entry.totalTokens),
+    lastOpened: now,
+    progressUpdatedAt: now,
+  };
+  store.put(next);
+  await transactionDone(transaction);
+  writeCheckpoint(id, next.currentIndex, now);
+  return next;
+}
+
+export async function touchBook(id: string): Promise<void> {
+  const database = await openDatabase();
+  const transaction = database.transaction(LIBRARY_STORE, "readwrite");
+  const store = transaction.objectStore(LIBRARY_STORE);
+  const entry = await requestAsPromise<LibraryEntry | undefined>(store.get(id));
+  if (entry) store.put({ ...entry, lastOpened: Date.now() });
+  await transactionDone(transaction);
+}
+
+export async function deleteBook(id: string): Promise<void> {
+  const database = await openDatabase();
+  const transaction = database.transaction([BOOKS_STORE, LIBRARY_STORE], "readwrite");
+  transaction.objectStore(BOOKS_STORE).delete(id);
+  transaction.objectStore(LIBRARY_STORE).delete(id);
+  await transactionDone(transaction);
+  localStorage.removeItem(`${CHECKPOINT_PREFIX}${id}`);
+}
+
+export function loadSettings(): ReaderSettings {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "{}") as Partial<ReaderSettings>;
+    return { ...DEFAULT_SETTINGS, ...parsed };
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
+}
+
+export function saveSettings(settings: ReaderSettings): void {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+}
+
+export function writeCheckpoint(id: string, currentIndex: number, savedAt = Date.now()): void {
+  localStorage.setItem(`${CHECKPOINT_PREFIX}${id}`, JSON.stringify({ currentIndex, savedAt }));
+}
+
+export async function hashFile(buffer: ArrayBuffer): Promise<string> {
+  if (globalThis.crypto?.subtle) {
+    const digest = await crypto.subtle.digest("SHA-256", buffer);
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+  let hash = 2166136261;
+  for (const byte of new Uint8Array(buffer)) {
+    hash ^= byte;
+    hash = Math.imul(hash, 16777619);
+  }
+  return `fnv-${(hash >>> 0).toString(16)}`;
+}
+
+function readCheckpoint(id: string): { currentIndex: number; savedAt: number } | null {
+  try {
+    return JSON.parse(localStorage.getItem(`${CHECKPOINT_PREFIX}${id}`) ?? "null");
+  } catch {
+    return null;
+  }
+}
+
+function percentageFor(currentIndex: number, totalTokens: number): number {
+  if (totalTokens <= 0 || currentIndex <= 0) return 0;
+  return (Math.min(clampIndex(currentIndex, totalTokens) + 1, totalTokens) / totalTokens) * 100;
+}
+
+function clampIndex(currentIndex: number, totalTokens: number): number {
+  return Math.max(0, Math.min(Math.round(currentIndex), Math.max(0, totalTokens - 1)));
+}
+
+function openDatabase(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(BOOKS_STORE)) database.createObjectStore(BOOKS_STORE, { keyPath: "id" });
+      if (!database.objectStoreNames.contains(LIBRARY_STORE)) {
+        const store = database.createObjectStore(LIBRARY_STORE, { keyPath: "id" });
+        store.createIndex("lastOpened", "lastOpened");
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function requestAsPromise<T>(request: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function transactionDone(transaction: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+}
