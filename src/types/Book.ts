@@ -1,12 +1,13 @@
 import type { ReaderToken } from "./Token";
 
 export type ReaderFont = "sans" | "serif" | "mono";
+export type LongWordAssistance = "off" | "low" | "medium" | "high";
 
 export type ReaderSettings = {
   wpm: number;
   fontSize: number;
   fontFamily: ReaderFont;
-  adaptiveTiming: boolean;
+  longWordAssistance: LongWordAssistance;
   punctuationPauses: boolean;
   sentencePause: number;
   commaPause: number;

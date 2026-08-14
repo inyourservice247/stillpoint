@@ -3,7 +3,7 @@ import test from "node:test";
 import type { ReaderSettings } from "../src/types/Book";
 import { getOrpIndex, splitAtOrp } from "../src/utils/orp";
 import { normalizeText } from "../src/utils/textNormalization";
-import { findSentenceStart, getTokenDuration } from "../src/utils/timing";
+import { findSentenceStart, getLengthMultiplier, getTokenDuration } from "../src/utils/timing";
 import { tokenizeText } from "../src/utils/tokenize";
 
 const SAMPLE = `The organisation — however — continued operating.
@@ -30,7 +30,7 @@ const SETTINGS: ReaderSettings = {
   wpm: 420,
   fontSize: 76,
   fontFamily: "sans",
-  adaptiveTiming: true,
+  longWordAssistance: "medium",
   punctuationPauses: true,
   sentencePause: 260,
   commaPause: 90,
@@ -74,12 +74,35 @@ test("ORP ignores wrapper punctuation and currency", () => {
   assert.equal(getOrpIndex("A"), 0);
 });
 
-test("adaptive and punctuation timing switches are independent", () => {
+test("long-word assistance and punctuation timing switches are independent", () => {
   const token = tokenizeText("self-regulation, continues").tokens[0];
   const base = 60_000 / SETTINGS.wpm;
   assert.ok(getTokenDuration(token, SETTINGS) > base + SETTINGS.commaPause);
-  assert.equal(getTokenDuration(token, { ...SETTINGS, adaptiveTiming: false }), Math.round(base + SETTINGS.commaPause));
-  assert.equal(getTokenDuration(token, { ...SETTINGS, punctuationPauses: false }), Math.round(base * 1.25));
+  assert.equal(getTokenDuration(token, { ...SETTINGS, longWordAssistance: "off" }), Math.round(base + SETTINGS.commaPause));
+  assert.equal(getTokenDuration(token, { ...SETTINGS, punctuationPauses: false }), Math.round(base * 1.3 * 1.08));
+});
+
+test("medium length bands, compound boost and cap match the requested rhythm", () => {
+  assert.equal(getLengthMultiplier(3, "medium"), 1);
+  assert.equal(getLengthMultiplier(8, "medium"), 1.08);
+  assert.equal(getLengthMultiplier(10, "medium"), 1.18);
+  assert.equal(getLengthMultiplier(14, "medium"), 1.3);
+  assert.equal(getLengthMultiplier(17, "medium"), 1.42);
+  assert.equal(getLengthMultiplier(25, "medium"), 1.55);
+
+  const extremeCompound = tokenizeText("electroencephalographically-compound").tokens[0];
+  const base = 60_000 / SETTINGS.wpm;
+  assert.equal(getTokenDuration(extremeCompound, { ...SETTINGS, punctuationPauses: false }), Math.round(base * 1.65));
+});
+
+test("sample durations remain proportionate at 300, 500 and 700 WPM", () => {
+  const words = tokenizeText("the management interconnected extraordinary self-regulation decision-making electroencephalographically").tokens;
+  for (const wpm of [300, 500, 700]) {
+    const durations = words.map((token) => getTokenDuration(token, { ...SETTINGS, wpm, punctuationPauses: false }));
+    assert.equal(durations[0], Math.round(60_000 / wpm));
+    assert.ok(durations.every((duration, index) => index === 0 || duration >= durations[0]));
+    assert.ok(Math.max(...durations) <= Math.round((60_000 / wpm) * 1.65));
+  }
 });
 
 test("sentence rewind uses precomputed sentence starts", () => {

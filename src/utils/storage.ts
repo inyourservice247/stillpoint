@@ -11,7 +11,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   wpm: 420,
   fontSize: 76,
   fontFamily: "sans",
-  adaptiveTiming: true,
+  longWordAssistance: "medium",
   punctuationPauses: true,
   sentencePause: 260,
   commaPause: 90,
@@ -102,8 +102,12 @@ export async function deleteBook(id: string): Promise<void> {
 
 export function loadSettings(): ReaderSettings {
   try {
-    const parsed = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "{}") as Partial<ReaderSettings>;
-    return { ...DEFAULT_SETTINGS, ...parsed };
+    const parsed = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "{}") as Partial<ReaderSettings> & { adaptiveTiming?: boolean };
+    const migratedAssistance = parsed.longWordAssistance
+      ?? (parsed.adaptiveTiming === false ? "off" : DEFAULT_SETTINGS.longWordAssistance);
+    const currentSettings = { ...parsed };
+    delete currentSettings.adaptiveTiming;
+    return { ...DEFAULT_SETTINGS, ...currentSettings, longWordAssistance: migratedAssistance };
   } catch {
     return DEFAULT_SETTINGS;
   }

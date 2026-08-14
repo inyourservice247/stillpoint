@@ -1,27 +1,47 @@
-import type { ReaderSettings } from "../types/Book";
+import type { LongWordAssistance, ReaderSettings } from "../types/Book";
 import type { ReaderToken } from "../types/Token";
 
 export const TIMING_DEFAULTS = {
-  longWordFactor: 1.12,
-  veryLongWordFactor: 1.25,
-  compoundFactor: 1.22,
+  complexityCap: 1.65,
+  compoundFactor: 1.08,
   clausePauseRatio: 0.6,
   dashPauseRatio: 0.7,
   paragraphPauseRatio: 1.35,
 } as const;
 
+const MEDIUM_LENGTH_BANDS = [
+  { maximumLength: 6, multiplier: 1 },
+  { maximumLength: 9, multiplier: 1.08 },
+  { maximumLength: 12, multiplier: 1.18 },
+  { maximumLength: 15, multiplier: 1.3 },
+  { maximumLength: 19, multiplier: 1.42 },
+  { maximumLength: Number.POSITIVE_INFINITY, multiplier: 1.55 },
+] as const;
+
+const PRESET_STRENGTH: Record<LongWordAssistance, number> = {
+  off: 0,
+  low: 0.5,
+  medium: 1,
+  high: 1.25,
+};
+
+export function getLengthMultiplier(length: number, assistance: LongWordAssistance): number {
+  const mediumMultiplier = MEDIUM_LENGTH_BANDS.find((band) => length <= band.maximumLength)?.multiplier ?? 1.55;
+  return 1 + (mediumMultiplier - 1) * PRESET_STRENGTH[assistance];
+}
+
+export function getCompoundMultiplier(isCompound: boolean, assistance: LongWordAssistance): number {
+  if (!isCompound) return 1;
+  return 1 + (TIMING_DEFAULTS.compoundFactor - 1) * PRESET_STRENGTH[assistance];
+}
+
 export function getTokenDuration(token: ReaderToken, settings: ReaderSettings): number {
   const baseDuration = 60_000 / settings.wpm;
-  let wordFactor = 1;
-
-  if (settings.adaptiveTiming) {
-    const lengthFactor = token.length >= 14
-      ? TIMING_DEFAULTS.veryLongWordFactor
-      : token.length >= 9
-        ? TIMING_DEFAULTS.longWordFactor
-        : 1;
-    wordFactor = Math.max(lengthFactor, token.isCompound ? TIMING_DEFAULTS.compoundFactor : 1);
-  }
+  const wordFactor = Math.min(
+    TIMING_DEFAULTS.complexityCap,
+    getLengthMultiplier(token.length, settings.longWordAssistance)
+      * getCompoundMultiplier(token.isCompound, settings.longWordAssistance),
+  );
 
   let pause = 0;
   if (settings.punctuationPauses) {

@@ -1,4 +1,4 @@
-import type { ReaderFont, ReaderSettings } from "../types/Book";
+import type { LongWordAssistance, ReaderFont, ReaderSettings } from "../types/Book";
 
 type SettingsProps = {
   settings: ReaderSettings;
@@ -41,9 +41,14 @@ export function Settings({ settings, onChange, onClose }: SettingsProps) {
           </select>
         </div>
 
-        <div className="toggle-row">
-          <span><label htmlFor="setting-adaptive-timing"><strong>Adaptive timing</strong></label><small>Give compounds and long words more time</small></span>
-          <input id="setting-adaptive-timing" type="checkbox" checked={settings.adaptiveTiming} onChange={(event) => set("adaptiveTiming", event.target.checked)} />
+        <div className="setting-row setting-row--select">
+          <span><label htmlFor="setting-long-word-assistance"><strong>Long-word assistance</strong></label><small>Give complex words a little more time</small></span>
+          <select id="setting-long-word-assistance" value={settings.longWordAssistance} onChange={(event) => set("longWordAssistance", event.target.value as LongWordAssistance)}>
+            <option value="off">Off</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </select>
         </div>
 
         <div className="toggle-row">
