@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LoadedBook, ReaderSettings } from "../types/Book";
 import { getOrpFit, splitAtOrp } from "../utils/orp";
-import { findSentenceStart, getTokenDuration } from "../utils/timing";
+import { findSentenceStart, getTemporaryWpm, getTokenDuration } from "../utils/timing";
 import { updateBookProgress, writeCheckpoint } from "../utils/storage";
 import { ContextPreview } from "./ContextPreview";
 import { ReaderControls } from "./ReaderControls";
@@ -19,15 +19,18 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
   const [playing, setPlaying] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [zen, setZen] = useState(false);
+  const [slowdownActive, setSlowdownActive] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(() => typeof window === "undefined" ? 1200 : window.innerWidth);
   const readerRef = useRef<HTMLElement>(null);
   const currentIndexRef = useRef(currentIndex);
   const playingRef = useRef(playing);
+  const slowdownRef = useRef(false);
   const lastCheckpoint = useRef(0);
   const lastDatabaseSave = useRef(0);
   const jumpSaveTimer = useRef<number | null>(null);
 
   const token = book.tokens[currentIndex] ?? book.tokens[0];
+  const { wpm, longWordAssistance, adaptiveTiming, punctuationPauses, sentencePause, commaPause } = settings;
   const barProgress = book.tokens.length <= 1 ? 100 : (currentIndex / (book.tokens.length - 1)) * 100;
   const parts = useMemo(() => splitAtOrp(token?.text ?? "", token?.orpIndex), [token]);
   const orpFit = getOrpFit(token?.text ?? "", settings.fontSize, viewportWidth);
@@ -102,6 +105,14 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
 
   useEffect(() => {
     if (!playing || !token) return;
+    const timingSettings = {
+      wpm: slowdownRef.current ? getTemporaryWpm(wpm) : wpm,
+      longWordAssistance,
+      adaptiveTiming,
+      punctuationPauses,
+      sentencePause,
+      commaPause,
+    };
     const timer = window.setTimeout(() => {
       setCurrentIndex((index) => {
         if (index >= book.tokens.length - 1) {
@@ -111,9 +122,9 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
         }
         return index + 1;
       });
-    }, getTokenDuration(token, settings));
+    }, getTokenDuration(token, timingSettings));
     return () => window.clearTimeout(timer);
-  }, [book.tokens.length, persist, playing, settings, token]);
+  }, [adaptiveTiming, book.tokens.length, commaPause, longWordAssistance, persist, playing, punctuationPauses, sentencePause, token, wpm]);
 
   useEffect(() => {
     const now = Date.now();
@@ -139,6 +150,13 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
 
       const jump = event.shiftKey ? 10 : 1;
       if (event.code === "Space") { event.preventDefault(); togglePlay(); }
+      else if (event.code === "KeyS" && playingRef.current) {
+        event.preventDefault();
+        if (!slowdownRef.current) {
+          slowdownRef.current = true;
+          setSlowdownActive(true);
+        }
+      }
       else if (event.code === "ArrowLeft") { event.preventDefault(); jumpTo(currentIndexRef.current - jump); }
       else if (event.code === "ArrowRight") { event.preventDefault(); jumpTo(currentIndexRef.current + jump); }
       else if (event.code === "ArrowUp") { event.preventDefault(); changeWpm(settings.wpm + 10); }
@@ -146,8 +164,23 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
       else if (event.code === "KeyR") { event.preventDefault(); jumpTo(findSentenceStart(book.sentenceStarts, currentIndexRef.current)); }
       else if (event.code === "KeyF") { event.preventDefault(); void toggleZen(); }
     };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.code !== "KeyS" || !slowdownRef.current) return;
+      slowdownRef.current = false;
+      setSlowdownActive(false);
+    };
+    const releaseSlowdown = () => {
+      slowdownRef.current = false;
+      setSlowdownActive(false);
+    };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", releaseSlowdown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", releaseSlowdown);
+    };
   }, [book.sentenceStarts, changeWpm, jumpTo, settings.wpm, showSettings, togglePlay, toggleZen]);
 
   useEffect(() => {
@@ -171,12 +204,23 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
   }, [book.id]);
 
   const fontClass = `reader-font--${settings.fontFamily}`;
+  const appearanceClasses = [
+    `reader-theme--${settings.theme}`,
+    `reader-contrast--${settings.textContrast}`,
+    `reader-orp--${settings.orpIntensity}`,
+    `reader-guides--${settings.focusGuides}`,
+  ].join(" ");
+  const displayWpm = slowdownActive ? getTemporaryWpm(settings.wpm) : settings.wpm;
   const currentWordNumber = Math.min(currentIndex + 1, book.tokens.length);
   const remaining = Math.max(0, book.tokens.length - currentWordNumber);
   const completionPercentage = currentIndex <= 0 ? 0 : (currentWordNumber / book.tokens.length) * 100;
 
   return (
-    <main ref={readerRef} className={`reader-shell ${fontClass} ${playing ? "reader--playing" : ""} ${zen ? "reader--zen" : ""}`}>
+    <main
+      ref={readerRef}
+      className={`reader-shell ${fontClass} ${appearanceClasses} ${playing ? "reader--playing" : ""} ${slowdownActive ? "reader--slowed" : ""} ${zen ? "reader--zen" : ""}`}
+      style={{ "--reader-weight": settings.fontWeight } as React.CSSProperties}
+    >
       <header className="reader-topbar reader-chrome">
         <button className="text-button" type="button" onClick={() => void leaveReader()}><span aria-hidden="true">←</span> Library</button>
         <p title={book.filename}>{book.filename}</p>
@@ -217,6 +261,8 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
         <ReaderControls
           playing={playing}
           wpm={settings.wpm}
+          displayWpm={displayWpm}
+          slowdownActive={slowdownActive}
           onPrevious={() => jumpTo(currentIndex - 1)}
           onTogglePlay={togglePlay}
           onNext={() => jumpTo(currentIndex + 1)}

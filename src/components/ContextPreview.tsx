@@ -12,20 +12,16 @@ export function ContextPreview({ tokens, currentIndex, visible }: ContextPreview
   const excerpt = tokens.slice(start, end);
 
   return (
-    <p className={`context-preview ${visible ? "context-preview--visible" : ""}`} aria-hidden={!visible}>
+    <p className={`context-preview ${visible ? "context-preview--visible" : ""}`} aria-hidden={!visible} aria-label="Paused reading context">
       {start > 0 && <span>… </span>}
       {excerpt.map((token, offset) => {
         const index = start + offset;
         return index === currentIndex ? (
-          <mark key={index}>{token.text}</mark>
+          <mark className="context-token" key={index}>{token.text}</mark>
         ) : (
-          <span key={index}>{token.text}</span>
+          <span className="context-token" key={index}>{token.text}</span>
         );
-      }).reduce<React.ReactNode[]>((parts, node, index) => {
-        if (index > 0) parts.push(" ");
-        parts.push(node);
-        return parts;
-      }, [])}
+      })}
       {end < tokens.length && <span> …</span>}
     </p>
   );

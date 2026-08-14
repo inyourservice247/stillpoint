@@ -1,6 +1,8 @@
 type ReaderControlsProps = {
   playing: boolean;
   wpm: number;
+  displayWpm: number;
+  slowdownActive: boolean;
   onPrevious: () => void;
   onTogglePlay: () => void;
   onNext: () => void;
@@ -10,6 +12,8 @@ type ReaderControlsProps = {
 export function ReaderControls({
   playing,
   wpm,
+  displayWpm,
+  slowdownActive,
   onPrevious,
   onTogglePlay,
   onNext,
@@ -29,7 +33,9 @@ export function ReaderControls({
       </button>
       <div className="wpm-stepper" aria-label="Reading speed">
         <button type="button" onClick={() => onWpmChange(wpm - 10)} aria-label="Decrease WPM">−</button>
-        <output aria-live="polite"><strong>{wpm}</strong><span>WPM</span></output>
+        <output aria-live="polite" aria-label={slowdownActive ? `Temporarily slowed to ${displayWpm} WPM` : `${displayWpm} WPM`}>
+          <strong>{displayWpm}</strong><span>{slowdownActive ? "SLOW" : "WPM"}</span>
+        </output>
         <button type="button" onClick={() => onWpmChange(wpm + 10)} aria-label="Increase WPM">+</button>
       </div>
     </div>

@@ -1,6 +1,10 @@
 import type { LongWordAssistance, ReaderSettings } from "../types/Book";
 import type { ReaderToken } from "../types/Token";
 
+export type TimingSettings = Pick<ReaderSettings,
+  "wpm" | "longWordAssistance" | "adaptiveTiming" | "punctuationPauses" | "sentencePause" | "commaPause"
+>;
+
 export const TIMING_DEFAULTS = {
   complexityCap: 1.65,
   compoundFactor: 1.08,
@@ -35,12 +39,17 @@ export function getCompoundMultiplier(isCompound: boolean, assistance: LongWordA
   return 1 + (TIMING_DEFAULTS.compoundFactor - 1) * PRESET_STRENGTH[assistance];
 }
 
-export function getTokenDuration(token: ReaderToken, settings: ReaderSettings): number {
+export function getTemporaryWpm(wpm: number): number {
+  return Math.max(100, Math.round(wpm * 0.7));
+}
+
+export function getTokenDuration(token: ReaderToken, settings: TimingSettings): number {
   const baseDuration = 60_000 / settings.wpm;
+  const assistance = settings.adaptiveTiming ? settings.longWordAssistance : "off";
   const wordFactor = Math.min(
     TIMING_DEFAULTS.complexityCap,
-    getLengthMultiplier(token.length, settings.longWordAssistance)
-      * getCompoundMultiplier(token.isCompound, settings.longWordAssistance),
+    getLengthMultiplier(token.length, assistance)
+      * getCompoundMultiplier(token.isCompound, assistance),
   );
 
   let pause = 0;

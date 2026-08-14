@@ -1,4 +1,5 @@
 import type { BookRecord, LibraryEntry, LoadedBook, ReaderSettings } from "../types/Book";
+import { inferProfile, PROFILE_PRESETS } from "./appearance";
 
 const DB_NAME = "stillpoint-reader";
 const DB_VERSION = 1;
@@ -9,9 +10,10 @@ const CHECKPOINT_PREFIX = "stillpoint:checkpoint:";
 
 export const DEFAULT_SETTINGS: ReaderSettings = {
   wpm: 420,
-  fontSize: 76,
-  fontFamily: "sans",
+  ...PROFILE_PRESETS.focus,
+  profile: "focus",
   longWordAssistance: "medium",
+  adaptiveTiming: true,
   punctuationPauses: true,
   sentencePause: 260,
   commaPause: 90,
@@ -102,12 +104,12 @@ export async function deleteBook(id: string): Promise<void> {
 
 export function loadSettings(): ReaderSettings {
   try {
-    const parsed = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "{}") as Partial<ReaderSettings> & { adaptiveTiming?: boolean };
+    const parsed = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "{}") as Partial<ReaderSettings>;
     const migratedAssistance = parsed.longWordAssistance
       ?? (parsed.adaptiveTiming === false ? "off" : DEFAULT_SETTINGS.longWordAssistance);
-    const currentSettings = { ...parsed };
-    delete currentSettings.adaptiveTiming;
-    return { ...DEFAULT_SETTINGS, ...currentSettings, longWordAssistance: migratedAssistance };
+    const merged = { ...DEFAULT_SETTINGS, ...parsed, longWordAssistance: migratedAssistance };
+    const profile = parsed.profile === "custom" ? "custom" : inferProfile(merged);
+    return { ...merged, profile };
   } catch {
     return DEFAULT_SETTINGS;
   }

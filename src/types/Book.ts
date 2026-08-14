@@ -2,12 +2,25 @@ import type { ReaderToken } from "./Token";
 
 export type ReaderFont = "sans" | "serif" | "mono";
 export type LongWordAssistance = "off" | "low" | "medium" | "high";
+export type ReaderProfile = "focus" | "night" | "paper" | "custom";
+export type ReaderTheme = "dark" | "sepia" | "light";
+export type ReaderWeight = 400 | 500 | 600 | 700;
+export type ReaderContrast = "soft" | "balanced" | "crisp";
+export type OrpIntensity = "subtle" | "normal" | "strong";
+export type FocusGuides = "off" | "minimal" | "strong";
 
 export type ReaderSettings = {
   wpm: number;
   fontSize: number;
   fontFamily: ReaderFont;
+  fontWeight: ReaderWeight;
+  profile: ReaderProfile;
+  theme: ReaderTheme;
+  textContrast: ReaderContrast;
+  orpIntensity: OrpIntensity;
+  focusGuides: FocusGuides;
   longWordAssistance: LongWordAssistance;
+  adaptiveTiming: boolean;
   punctuationPauses: boolean;
   sentencePause: number;
   commaPause: number;

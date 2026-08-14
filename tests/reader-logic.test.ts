@@ -3,7 +3,8 @@ import test from "node:test";
 import type { ReaderSettings } from "../src/types/Book";
 import { getOrpIndex, splitAtOrp } from "../src/utils/orp";
 import { normalizeText } from "../src/utils/textNormalization";
-import { findSentenceStart, getLengthMultiplier, getTokenDuration } from "../src/utils/timing";
+import { applyProfile, inferProfile, updateAppearance } from "../src/utils/appearance";
+import { findSentenceStart, getLengthMultiplier, getTemporaryWpm, getTokenDuration } from "../src/utils/timing";
 import { tokenizeText } from "../src/utils/tokenize";
 
 const SAMPLE = `The organisation — however — continued operating.
@@ -30,7 +31,14 @@ const SETTINGS: ReaderSettings = {
   wpm: 420,
   fontSize: 76,
   fontFamily: "sans",
+  fontWeight: 600,
+  profile: "focus",
+  theme: "dark",
+  textContrast: "crisp",
+  orpIntensity: "normal",
+  focusGuides: "minimal",
   longWordAssistance: "medium",
+  adaptiveTiming: true,
   punctuationPauses: true,
   sentencePause: 260,
   commaPause: 90,
@@ -80,6 +88,15 @@ test("long-word assistance and punctuation timing switches are independent", () 
   assert.ok(getTokenDuration(token, SETTINGS) > base + SETTINGS.commaPause);
   assert.equal(getTokenDuration(token, { ...SETTINGS, longWordAssistance: "off" }), Math.round(base + SETTINGS.commaPause));
   assert.equal(getTokenDuration(token, { ...SETTINGS, punctuationPauses: false }), Math.round(base * 1.3 * 1.08));
+  assert.equal(getTokenDuration(token, { ...SETTINGS, adaptiveTiming: false }), Math.round(base + SETTINGS.commaPause));
+});
+
+test("profiles coordinate appearance and manual changes become custom", () => {
+  const paper = applyProfile(SETTINGS, "paper");
+  assert.equal(paper.theme, "sepia");
+  assert.equal(paper.fontFamily, "serif");
+  assert.equal(inferProfile(paper), "paper");
+  assert.equal(updateAppearance(paper, "fontWeight", 700).profile, "custom");
 });
 
 test("medium length bands, compound boost and cap match the requested rhythm", () => {
@@ -103,6 +120,13 @@ test("sample durations remain proportionate at 300, 500 and 700 WPM", () => {
     assert.ok(durations.every((duration, index) => index === 0 || duration >= durations[0]));
     assert.ok(Math.max(...durations) <= Math.round((60_000 / wpm) * 1.65));
   }
+});
+
+test("temporary slowdown is exact and leaves the saved WPM value untouched", () => {
+  const savedWpm = 600;
+  assert.equal(getTemporaryWpm(savedWpm), 420);
+  assert.equal(savedWpm, 600);
+  assert.equal(getTemporaryWpm(100), 100);
 });
 
 test("sentence rewind uses precomputed sentence starts", () => {
