@@ -7,6 +7,11 @@ export type SentenceChunk = {
   tokenOffsets: number[];
 };
 
+export type KokoroPreparationScope = "ten-minutes" | "thirty-minutes" | "book";
+
+const KOKORO_WORDS_PER_MINUTE = 165;
+const KOKORO_SAMPLE_RATE = 24_000;
+
 export function getSentenceChunk(book: Pick<LoadedBook, "tokens" | "sentenceStarts">, tokenIndex: number): SentenceChunk {
   const starts = book.sentenceStarts.length ? book.sentenceStarts : [0];
   let sentenceStart = 0;
@@ -64,7 +69,20 @@ export function tokenIndexForBoundary(chunk: SentenceChunk, charIndex: number): 
 }
 
 export function estimatedSpeechDuration(tokenCount: number, rate: number): number {
-  return Math.max(250, tokenCount * (60_000 / (165 * rate)));
+  return Math.max(250, tokenCount * (60_000 / (KOKORO_WORDS_PER_MINUTE * rate)));
+}
+
+export function getKokoroPreparationRange(totalTokens: number, currentIndex: number, scope: KokoroPreparationScope): { start: number; end: number } {
+  const lastIndex = Math.max(0, totalTokens - 1);
+  if (scope === "book") return { start: 0, end: lastIndex };
+  const start = Math.max(0, Math.min(Math.round(currentIndex), lastIndex));
+  const minutes = scope === "ten-minutes" ? 10 : 30;
+  return { start, end: Math.min(lastIndex, start + (minutes * KOKORO_WORDS_PER_MINUTE) - 1) };
+}
+
+export function estimateKokoroStorageBytes(tokenCount: number): number {
+  const seconds = Math.max(0, tokenCount) * (60 / KOKORO_WORDS_PER_MINUTE);
+  return Math.ceil(seconds * KOKORO_SAMPLE_RATE * 2);
 }
 
 export function getLinearSpeechIndex(start: number, end: number, elapsed: number, duration: number): number {

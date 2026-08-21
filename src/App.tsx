@@ -6,6 +6,7 @@ import { Reader } from "./components/Reader";
 import type { BookRecord, LibraryEntry, LoadedBook, ReaderSettings } from "./types/Book";
 import { normalizeText } from "./utils/textNormalization";
 import { tokenizeText } from "./utils/tokenize";
+import { prepareMarkdownBook } from "./utils/markdown";
 import {
   deleteBook,
   getBook,
@@ -53,15 +54,18 @@ export default function App() {
 
   const openFile = async (file: File) => {
     setError(null);
-    if (!file.name.toLowerCase().endsWith(".txt")) {
-      setError("Stillpoint reads .txt files only.");
+    const lowerName = file.name.toLowerCase();
+    const markdown = lowerName.endsWith(".md") || lowerName.endsWith(".markdown");
+    if (!lowerName.endsWith(".txt") && !markdown) {
+      setError("Stillpoint reads .txt and .md files.");
       return;
     }
 
     setProcessing(true);
     try {
       const buffer = await file.arrayBuffer();
-      const id = await hashFile(buffer);
+      const identityBuffer = markdown ? await new Blob([buffer, "\n:stillpoint-markdown-v1"]).arrayBuffer() : buffer;
+      const id = await hashFile(identityBuffer);
       const existing = await getBook(id);
       if (existing) {
         await touchBook(id);
@@ -70,7 +74,9 @@ export default function App() {
       }
 
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-      const normalizedText = normalizeText(decodeText(buffer));
+      const decoded = decodeText(buffer);
+      const prepared = markdown ? prepareMarkdownBook(decoded) : { normalizedText: normalizeText(decoded), chapters: [] };
+      const normalizedText = prepared.normalizedText;
       if (!normalizedText) throw new Error("empty");
       const document = tokenizeText(normalizedText);
       if (!document.tokens.length) throw new Error("empty");
@@ -82,6 +88,10 @@ export default function App() {
         tokens: document.tokens,
         sentenceStarts: document.sentenceStarts,
         paragraphStarts: document.paragraphStarts,
+        chapters: prepared.chapters.flatMap((chapter) => {
+          const index = document.paragraphStarts[chapter.paragraphIndex];
+          return index === undefined ? [] : [{ title: chapter.title, level: chapter.level, index }];
+        }),
         totalTokens: document.tokens.length,
         createdAt: Date.now(),
       };

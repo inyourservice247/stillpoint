@@ -142,6 +142,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .progress-range::-webkit-slider-thumb { width: 10px; height: 10px; margin-top: -4px; appearance: none; border: 2px solid var(--bg); border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .progress-range::-moz-range-thumb { width: 8px; height: 8px; border: 2px solid var(--bg); border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .reader-controls { display: grid; grid-template-columns: 42px 54px 42px 86px; align-items: center; justify-content: center; gap: 10px; width: min(330px, 100%); margin: 14px auto 0; }
+.reader-controls--chapters { grid-template-columns: 86px 42px 54px 42px 86px; width: min(430px, 100%); }
 .reader-control-stack { width: min(420px, 100%); margin: 0 auto; }
 .voice-error { max-width: 620px; margin: 0 auto 7px; color: var(--accent); font-size: 10px; text-align: center; }
 .control-button { height: 42px; border: 1px solid var(--line); border-radius: 50%; background: transparent; cursor: pointer; }
@@ -150,11 +151,21 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .control-button--primary { display: grid; place-items: center; width: 54px; height: 54px; border-color: #d85c48; background: var(--accent); color: #160d0b; font-size: 17px; box-shadow: 0 8px 24px rgba(216,92,72,.18); }
 .control-button--primary svg { width: 22px; height: 22px; fill: currentColor; }
 .speed-dropup { position: relative; justify-self: end; }
-.speed-dropup summary { display: flex; width: 78px; height: 44px; flex-direction: column; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 22px; color: var(--ink); cursor: pointer; list-style: none; }
-.speed-dropup summary::-webkit-details-marker { display: none; }
+.chapter-dropup { position: relative; justify-self: start; }
+.speed-dropup summary, .chapter-dropup summary { display: flex; width: 78px; height: 44px; flex-direction: column; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 22px; color: var(--ink); cursor: pointer; list-style: none; }
+.speed-dropup summary::-webkit-details-marker, .chapter-dropup summary::-webkit-details-marker { display: none; }
 .speed-dropup summary strong { font: 700 12px var(--mono); }
 .speed-dropup summary span { color: var(--dim); font: 8px var(--mono); letter-spacing: .12em; }
-.speed-dropup[open] summary { border-color: var(--accent); background: var(--accent-soft); }
+.speed-dropup[open] summary, .chapter-dropup[open] summary { border-color: var(--accent); background: var(--accent-soft); }
+.chapter-dropup summary svg { width: 24px; height: 24px; fill: var(--muted); }
+.chapter-dropup__panel { position: absolute; z-index: 20; left: 0; bottom: calc(100% + 10px); width: min(320px, calc(100vw - 28px)); max-height: min(420px, 52vh); overflow: visible; border: 1px solid var(--line); background: var(--panel); box-shadow: 0 18px 50px rgba(0,0,0,.34); }
+.chapter-dropup__panel::after { position: absolute; left: 34px; bottom: -5px; width: 8px; height: 8px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--panel); content: ""; transform: rotate(45deg); }
+.chapter-dropup__panel > header { display: flex; align-items: center; justify-content: space-between; padding: 13px 14px; border-bottom: 1px solid var(--line-soft); color: var(--muted); font: 9px var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.chapter-dropup__panel > div { max-height: calc(min(420px, 52vh) - 42px); overflow-y: auto; }
+.chapter-dropup__panel button { width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 0; border-bottom: 1px solid var(--line-soft); background: transparent; color: var(--muted); text-align: left; cursor: pointer; }
+.chapter-dropup__panel button:hover, .chapter-dropup__panel button[aria-current="true"] { background: var(--accent-soft); color: var(--ink); }
+.chapter-dropup__panel button span { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.chapter-dropup__panel button small { flex: 0 0 auto; color: var(--dim); font: 8px var(--mono); text-transform: uppercase; }
 .speed-dropup__panel { position: absolute; z-index: 20; right: 0; bottom: calc(100% + 10px); width: 260px; padding: 14px; border: 1px solid var(--line); background: var(--panel); box-shadow: 0 18px 50px rgba(0,0,0,.34); }
 .speed-dropup__panel::after { position: absolute; right: 28px; bottom: -5px; width: 8px; height: 8px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--panel); content: ""; transform: rotate(45deg); }
 .speed-dropup__panel header { display: flex; justify-content: space-between; margin-bottom: 12px; color: var(--muted); font: 9px var(--mono); }
@@ -189,6 +200,21 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .secondary-button, .danger-text-button { min-height: 38px; padding: 0 12px; cursor: pointer; }
 .secondary-button { border: 1px solid var(--accent); background: var(--accent-soft); color: var(--ink); }
 .danger-text-button { border: 1px solid var(--line); background: transparent; color: var(--accent); }
+.text-danger-button { padding: 4px 0; border: 0; background: transparent; color: var(--accent); font-size: 10px; cursor: pointer; }
+.kokoro-preparation { padding: 18px 0 4px; border-top: 1px solid var(--line-soft); }
+.kokoro-preparation__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.kokoro-preparation__heading > span { display: flex; flex-direction: column; gap: 4px; }
+.kokoro-preparation__heading small, .kokoro-preparation__note { color: var(--muted); font-size: 10px; }
+.kokoro-preparation__choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.kokoro-preparation__choices button { min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 8px; border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; }
+.kokoro-preparation__choices button:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
+.kokoro-preparation__choices button:disabled { opacity: .42; cursor: wait; }
+.kokoro-preparation__choices strong { font-size: 10px; }
+.kokoro-preparation__choices small { color: var(--muted); font-size: 9px; }
+.kokoro-preparation__progress { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; margin-top: 12px; color: var(--muted); font-size: 10px; }
+.kokoro-preparation__progress progress { grid-column: 1; width: 100%; accent-color: var(--accent); }
+.kokoro-preparation__progress button { grid-column: 2; grid-row: 1 / 3; min-height: 32px; padding: 0 10px; border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; }
+.kokoro-preparation__note { margin: 10px 0 0; line-height: 1.5; }
 .settings-section h3 + .compact-setting, .settings-section h3 + .range-setting, .settings-section h3 + .toggle-row { border-top: 0; }
 .compact-setting > span, .range-setting > span, .toggle-row > span { display: flex; flex-direction: column; gap: 5px; }
 .compact-setting strong, .range-setting strong, .toggle-row strong { font-size: 13px; }
@@ -256,12 +282,14 @@ kbd { margin: 0 2px; padding: 2px 5px; border: 1px solid var(--line); color: var
   .progress-copy span { justify-self: end; }
   .progress-copy small { display: none; }
   .reader-controls { grid-template-columns: 40px 54px 40px 76px; gap: 8px; }
-  .speed-dropup summary { width: 72px; }
+  .reader-controls--chapters { grid-template-columns: 72px 40px 54px 40px 72px; gap: 6px; }
+  .speed-dropup summary, .chapter-dropup summary { width: 72px; }
   .speed-dropup__panel { right: -4px; width: min(260px, calc(100vw - 28px)); }
   .settings-backdrop { padding: 8px; }
   .settings-panel { padding: 22px 18px; }
   .compact-setting, .range-setting, .toggle-row { grid-template-columns: 1fr; gap: 10px; padding: 14px 0; }
   .model-management { grid-template-columns: 1fr; gap: 10px; padding: 14px 0; }
+  .kokoro-preparation__choices { grid-template-columns: 1fr; }
   .choice-group { grid-auto-flow: row; grid-template-columns: repeat(3, 1fr); }
   .choice-group--profiles, .compact-setting--stacked .choice-group { grid-template-columns: repeat(2, 1fr); }
   .toggle-row { grid-template-columns: 1fr auto; }

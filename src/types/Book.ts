@@ -10,6 +10,12 @@ export type OrpIntensity = "subtle" | "normal" | "strong";
 export type FocusGuides = "off" | "minimal" | "strong";
 export type ReadingMode = "silent" | "device" | "kokoro";
 
+export type BookChapter = {
+  title: string;
+  level: number;
+  index: number;
+};
+
 export type ReaderSettings = {
   wpm: number;
   fontSize: number;
@@ -38,6 +44,7 @@ export type BookRecord = {
   tokens: ReaderToken[];
   sentenceStarts: number[];
   paragraphStarts: number[];
+  chapters: BookChapter[];
   totalTokens: number;
   createdAt: number;
 };

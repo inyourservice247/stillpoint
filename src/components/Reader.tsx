@@ -7,7 +7,7 @@ import { ContextPreview } from "./ContextPreview";
 import { ReaderControls } from "./ReaderControls";
 import { Settings } from "./Settings";
 import { useVoicePlayback } from "../hooks/useVoicePlayback";
-import { normalizeVoiceRate } from "../utils/voice";
+import { estimateKokoroStorageBytes, normalizeVoiceRate } from "../utils/voice";
 
 type ReaderProps = {
   book: LoadedBook;
@@ -66,6 +66,7 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
     onFinish: finishVoicePlayback,
   });
   const cancelVoicePlayback = voicePlayback.cancel;
+  const setKokoroPlaybackRate = voicePlayback.setKokoroPlaybackRate;
 
   const jumpTo = useCallback((nextIndex: number, pause = true) => {
     const clamped = Math.max(0, Math.min(Math.round(nextIndex), book.tokens.length - 1));
@@ -89,22 +90,17 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
       void persist();
       return;
     }
-    if (currentIndexRef.current >= book.tokens.length - 1) {
-      currentIndexRef.current = 0;
-      setCurrentIndex(0);
+    const startIndex = currentIndexRef.current >= book.tokens.length - 1 ? 0 : currentIndexRef.current;
+    if (startIndex !== currentIndexRef.current) {
+      currentIndexRef.current = startIndex;
+      setCurrentIndex(startIndex);
     }
-    if (settings.readingMode === "silent" || voicePlayback.start()) setPlaying(true);
+    if (settings.readingMode === "silent" || voicePlayback.start(startIndex)) setPlaying(true);
   }, [book.tokens.length, persist, settings.readingMode, voicePlayback]);
 
   const changeWpm = useCallback((nextWpm: number) => {
     onSettingsChange({ ...settings, wpm: Math.max(100, Math.min(1000, Math.round(nextWpm / 10) * 10)) });
   }, [onSettingsChange, settings]);
-
-  const changeSetting = useCallback(<Key extends keyof ReaderSettings>(key: Key, value: ReaderSettings[Key]) => {
-    cancelVoicePlayback();
-    setPlaying(false);
-    onSettingsChange({ ...settings, [key]: value });
-  }, [cancelVoicePlayback, onSettingsChange, settings]);
 
   const changeSettingsFromPanel = useCallback((nextSettings: ReaderSettings) => {
     const playbackSourceChanged = nextSettings.readingMode !== settings.readingMode
@@ -116,6 +112,15 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
     }
     onSettingsChange(nextSettings);
   }, [cancelVoicePlayback, onSettingsChange, settings.deviceVoice, settings.kokoroVoice, settings.readingMode]);
+
+  const changeVoiceRate = useCallback((nextRate: number) => {
+    const rate = normalizeVoiceRate(nextRate);
+    if (!setKokoroPlaybackRate(rate)) {
+      cancelVoicePlayback();
+      setPlaying(false);
+    }
+    onSettingsChange({ ...settings, voiceRate: rate });
+  }, [cancelVoicePlayback, onSettingsChange, setKokoroPlaybackRate, settings]);
 
   const toggleZen = useCallback(async () => {
     if (!zen) {
@@ -273,6 +278,12 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
         : estimatedMinuteRemainder === 0
           ? `${estimatedHoursRemaining} hr`
           : `${estimatedHoursRemaining} hr ${estimatedMinuteRemainder} min`;
+  const preparationTokenCount = Math.max(0, book.tokens.length - currentIndex);
+  const kokoroPreparationEstimates = {
+    "ten-minutes": estimateKokoroStorageBytes(Math.min(preparationTokenCount, 1_650)),
+    "thirty-minutes": estimateKokoroStorageBytes(Math.min(preparationTokenCount, 4_950)),
+    book: estimateKokoroStorageBytes(book.tokens.length),
+  };
 
   return (
     <main
@@ -339,7 +350,10 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
           onWpmChange={changeWpm}
           mode={settings.readingMode}
           voiceRate={settings.voiceRate}
-          onVoiceRateChange={(rate) => changeSetting("voiceRate", normalizeVoiceRate(rate))}
+          onVoiceRateChange={changeVoiceRate}
+          chapters={book.chapters ?? []}
+          currentIndex={currentIndex}
+          onChapterChange={(index) => jumpTo(index)}
         />
       </section>
 
@@ -353,7 +367,13 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
           speechAvailable={voicePlayback.speechAvailable}
           kokoroStatus={voicePlayback.kokoroStatus}
           kokoroProgress={voicePlayback.kokoroProgress}
+          kokoroPreparedSeconds={voicePlayback.kokoroPreparedSeconds}
+          kokoroPreparation={voicePlayback.kokoroPreparation}
+          kokoroPreparationEstimates={kokoroPreparationEstimates}
           onPrepareKokoro={() => voicePlayback.prepareKokoro()}
+          onPrepareKokoroAudio={(scope) => void voicePlayback.prepareKokoroAudio(scope)}
+          onStopKokoroPreparation={voicePlayback.stopKokoroPreparation}
+          onRemovePreparedKokoroAudio={() => void voicePlayback.removePreparedKokoroAudio()}
           onRemoveKokoro={() => void voicePlayback.removeKokoro()}
         />
       )}

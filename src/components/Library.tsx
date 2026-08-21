@@ -51,16 +51,16 @@ export function Library({ entries, processing, error, onFile, onOpen, onDelete }
         onDragOver={(event) => event.preventDefault()}
         onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false); }}
         onDrop={(event) => { event.preventDefault(); setDragging(false); chooseFile(event.dataTransfer.files); }}
-        aria-label="Open a TXT file"
+        aria-label="Open a TXT or Markdown file"
       >
-        <input ref={fileInput} type="file" accept=".txt,text/plain" onChange={(event) => chooseFile(event.target.files)} hidden />
-        <div className="file-symbol" aria-hidden="true">TXT</div>
+        <input ref={fileInput} type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" onChange={(event) => chooseFile(event.target.files)} hidden />
+        <div className="file-symbol" aria-hidden="true">TXT<br />MD</div>
         <div>
-          <h2>{processing ? "Preparing your book…" : dragging ? "Drop to open" : "Open a .txt file"}</h2>
+          <h2>{processing ? "Preparing your book…" : dragging ? "Drop to open" : "Open a .txt or .md file"}</h2>
           <p>{processing ? "Normalizing and finding meaningful reading units." : "Choose a file or drop it here. Nothing is uploaded."}</p>
         </div>
         <button className="open-file-button" type="button" disabled={processing} onClick={() => fileInput.current?.click()}>
-          {processing ? "Working…" : "Choose TXT"}
+          {processing ? "Working…" : "Choose file"}
         </button>
       </section>
 

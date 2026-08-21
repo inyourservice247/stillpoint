@@ -2,7 +2,7 @@ import type { BookRecord, LibraryEntry, LoadedBook, ReaderSettings } from "../ty
 import { inferProfile, PROFILE_PRESETS } from "./appearance";
 
 const DB_NAME = "stillpoint-reader";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const BOOKS_STORE = "books";
 const LIBRARY_STORE = "library";
 const VOICE_AUDIO_STORE = "voice-audio";
@@ -66,7 +66,7 @@ export async function getBook(id: string): Promise<LoadedBook | null> {
   const currentIndex = checkpoint && checkpoint.savedAt > entry.progressUpdatedAt
     ? clampIndex(checkpoint.currentIndex, entry.totalTokens)
     : entry.currentIndex;
-  return { ...book, ...entry, currentIndex, percentage: percentageFor(currentIndex, entry.totalTokens) };
+  return { ...book, chapters: book.chapters ?? [], ...entry, currentIndex, percentage: percentageFor(currentIndex, entry.totalTokens) };
 }
 
 export async function updateBookProgress(id: string, currentIndex: number): Promise<LibraryEntry | null> {
@@ -118,6 +118,7 @@ export type CachedVoiceAudio = {
   end: number;
   sampleRate: number;
   samples: ArrayBuffer;
+  encoding?: "float32" | "pcm-s16";
   createdAt: number;
 };
 
@@ -131,6 +132,22 @@ export async function saveCachedVoiceAudio(record: CachedVoiceAudio): Promise<vo
   const database = await openDatabase();
   const transaction = database.transaction(VOICE_AUDIO_STORE, "readwrite");
   transaction.objectStore(VOICE_AUDIO_STORE).put(record);
+  await transactionDone(transaction);
+}
+
+export async function listCachedVoiceAudioKeys(bookId: string, voice: string): Promise<string[]> {
+  const database = await openDatabase();
+  const store = database.transaction(VOICE_AUDIO_STORE, "readonly").objectStore(VOICE_AUDIO_STORE);
+  const keys = await requestAsPromise<IDBValidKey[]>(store.index("bookVoice").getAllKeys(IDBKeyRange.only([bookId, voice])));
+  return keys.map(String);
+}
+
+export async function deleteCachedVoiceAudio(bookId: string, voice: string): Promise<void> {
+  const database = await openDatabase();
+  const transaction = database.transaction(VOICE_AUDIO_STORE, "readwrite");
+  const store = transaction.objectStore(VOICE_AUDIO_STORE);
+  const keys = await requestAsPromise<IDBValidKey[]>(store.index("bookVoice").getAllKeys(IDBKeyRange.only([bookId, voice])));
+  for (const key of keys) store.delete(key);
   await transactionDone(transaction);
 }
 
@@ -198,6 +215,10 @@ function openDatabase(): Promise<IDBDatabase> {
       if (!database.objectStoreNames.contains(VOICE_AUDIO_STORE)) {
         const store = database.createObjectStore(VOICE_AUDIO_STORE, { keyPath: "id" });
         store.createIndex("bookId", "bookId");
+        store.createIndex("bookVoice", ["bookId", "voice"]);
+      } else {
+        const store = request.transaction?.objectStore(VOICE_AUDIO_STORE);
+        if (store && !store.indexNames.contains("bookVoice")) store.createIndex("bookVoice", ["bookId", "voice"]);
       }
     };
     request.onsuccess = () => resolve(request.result);

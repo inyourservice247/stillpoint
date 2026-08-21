@@ -6,7 +6,8 @@ import { normalizeText } from "../src/utils/textNormalization";
 import { applyProfile, inferProfile, updateAppearance } from "../src/utils/appearance";
 import { findSentenceStart, getLengthMultiplier, getTemporaryWpm, getTokenDuration } from "../src/utils/timing";
 import { tokenizeText } from "../src/utils/tokenize";
-import { estimatedSpeechDuration, getKokoroPassageChunk, getLinearSpeechIndex, getSentenceChunk, normalizeVoiceRate, tokenIndexForBoundary } from "../src/utils/voice";
+import { prepareMarkdownBook } from "../src/utils/markdown";
+import { estimateKokoroStorageBytes, estimatedSpeechDuration, getKokoroPreparationRange, getKokoroPassageChunk, getLinearSpeechIndex, getSentenceChunk, normalizeVoiceRate, tokenIndexForBoundary } from "../src/utils/voice";
 
 const SAMPLE = `The organisation — however — continued operating.
 
@@ -175,4 +176,26 @@ test("Kokoro passages rewind to a sentence start and batch following sentences",
   assert.equal(passage.start, 4);
   assert.equal(passage.end, 11);
   assert.match(passage.text, /^Second sentence/);
+});
+
+test("Kokoro preparation ranges are bounded and storage estimates use compact PCM", () => {
+  assert.deepEqual(getKokoroPreparationRange(10_000, 100, "ten-minutes"), { start: 100, end: 1_749 });
+  assert.deepEqual(getKokoroPreparationRange(10_000, 100, "thirty-minutes"), { start: 100, end: 5_049 });
+  assert.deepEqual(getKokoroPreparationRange(10_000, 8_000, "book"), { start: 0, end: 9_999 });
+  assert.equal(estimateKokoroStorageBytes(165), 2_880_000);
+});
+
+test("Markdown headings become clean chapter jump points", () => {
+  const prepared = prepareMarkdownBook("# First Chapter\n\nWords with **emphasis**.\n\n## Next Part\n\n[Linked words](https://example.com) remain readable.");
+  const document = tokenizeText(prepared.normalizedText);
+  const chapters = prepared.chapters.map((chapter) => ({
+    title: chapter.title,
+    level: chapter.level,
+    index: document.paragraphStarts[chapter.paragraphIndex],
+  }));
+  assert.equal(prepared.normalizedText, "First Chapter\n\nWords with emphasis.\n\nNext Part\n\nLinked words remain readable.");
+  assert.deepEqual(chapters, [
+    { title: "First Chapter", level: 1, index: 0 },
+    { title: "Next Part", level: 2, index: 5 },
+  ]);
 });

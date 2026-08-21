@@ -12,6 +12,8 @@ import type {
   ReaderWeight,
 } from "../types/Book";
 import { applyProfile, updateAppearance } from "../utils/appearance";
+import type { KokoroPreparationState } from "../hooks/useVoicePlayback";
+import type { KokoroPreparationScope } from "../utils/voice";
 
 type SettingsProps = {
   settings: ReaderSettings;
@@ -21,7 +23,13 @@ type SettingsProps = {
   speechAvailable: boolean;
   kokoroStatus: "idle" | "loading" | "restoring" | "ready" | "error";
   kokoroProgress: number;
+  kokoroPreparedSeconds: number;
+  kokoroPreparation: KokoroPreparationState;
+  kokoroPreparationEstimates: Record<KokoroPreparationScope, number>;
   onPrepareKokoro: () => void;
+  onPrepareKokoroAudio: (scope: KokoroPreparationScope) => void;
+  onStopKokoroPreparation: () => void;
+  onRemovePreparedKokoroAudio: () => void;
   onRemoveKokoro: () => void;
 };
 
@@ -105,8 +113,21 @@ const KOKORO_VOICES = [
   { value: "bm_fable", label: "Fable · UK" },
 ];
 
-export function Settings({ settings, onChange, onClose, voices, speechAvailable, kokoroStatus, kokoroProgress, onPrepareKokoro, onRemoveKokoro }: SettingsProps) {
-  const panelRef = useRef<HTMLElement>(null);
+function formatBytes(bytes: number): string {
+  if (bytes < 1_000_000) return `${Math.ceil(bytes / 1_000)} KB`;
+  if (bytes < 1_000_000_000) return `${Math.ceil(bytes / 1_000_000)} MB`;
+  return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
+}
+
+function formatPreparedTime(seconds: number): string {
+  if (seconds < 60) return seconds > 0 ? "<1 min" : "0 min";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)} hr ${minutes % 60} min`;
+}
+
+export function Settings({ settings, onChange, onClose, voices, speechAvailable, kokoroStatus, kokoroProgress, kokoroPreparedSeconds, kokoroPreparation, kokoroPreparationEstimates, onPrepareKokoro, onPrepareKokoroAudio, onStopKokoroPreparation, onRemovePreparedKokoroAudio, onRemoveKokoro }: SettingsProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -151,6 +172,10 @@ export function Settings({ settings, onChange, onClose, voices, speechAvailable,
   const chooseProfile = (profile: ReaderProfile) => {
     onChange(profile === "custom" ? { ...settings, profile } : applyProfile(settings, profile));
   };
+  const preparingAudio = kokoroPreparation.status === "preparing";
+  const preparationPercentage = kokoroPreparation.total > 0
+    ? Math.round((kokoroPreparation.completed / kokoroPreparation.total) * 100)
+    : 0;
 
   return (
     <div className="settings-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
@@ -199,6 +224,30 @@ export function Settings({ settings, onChange, onClose, voices, speechAvailable,
               ) : (
                 <button className="secondary-button" type="button" onClick={onPrepareKokoro}>Download voice model</button>
               )}
+            </div>
+          )}
+          {kokoroStatus === "ready" && (
+            <div className="kokoro-preparation">
+              <div className="kokoro-preparation__heading">
+                <span><strong>Prepared book audio</strong><small>{formatPreparedTime(kokoroPreparedSeconds)} saved locally for this voice</small></span>
+                {kokoroPreparedSeconds > 0 && !preparingAudio && (
+                  <button className="text-danger-button" type="button" onClick={() => window.confirm("Remove the prepared Kokoro audio for this book and voice?") && onRemovePreparedKokoroAudio()}>Clear audio</button>
+                )}
+              </div>
+              <div className="kokoro-preparation__choices" aria-label="Prepare Kokoro audio">
+                <button type="button" disabled={preparingAudio} onClick={() => onPrepareKokoroAudio("ten-minutes")}><strong>Next 10 min</strong><small>~{formatBytes(kokoroPreparationEstimates["ten-minutes"])}</small></button>
+                <button type="button" disabled={preparingAudio} onClick={() => onPrepareKokoroAudio("thirty-minutes")}><strong>Next 30 min</strong><small>~{formatBytes(kokoroPreparationEstimates["thirty-minutes"])}</small></button>
+                <button type="button" disabled={preparingAudio} onClick={() => window.confirm(`Prepare the entire book locally? Estimated storage: ${formatBytes(kokoroPreparationEstimates.book)}.`) && onPrepareKokoroAudio("book")}><strong>Entire book</strong><small>~{formatBytes(kokoroPreparationEstimates.book)}</small></button>
+              </div>
+              {preparingAudio && (
+                <div className="kokoro-preparation__progress" role="status">
+                  <span>Preparing and saving locally… {preparationPercentage}%</span>
+                  <progress max="100" value={preparationPercentage} />
+                  <button type="button" onClick={onStopKokoroPreparation}>Stop</button>
+                </div>
+              )}
+              {kokoroPreparation.status === "complete" && <p className="kokoro-preparation__note" role="status">Preparation complete. Playback will reuse this local audio.</p>}
+              <p className="kokoro-preparation__note">Generated passages stay in this browser. Nothing from the book is uploaded.</p>
             </div>
           )}
         </section>
