@@ -65,12 +65,13 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
     onIndex: setVoiceIndex,
     onFinish: finishVoicePlayback,
   });
+  const cancelVoicePlayback = voicePlayback.cancel;
 
   const jumpTo = useCallback((nextIndex: number, pause = true) => {
     const clamped = Math.max(0, Math.min(Math.round(nextIndex), book.tokens.length - 1));
     if (pause) {
       setPlaying(false);
-      voicePlayback.cancel();
+      cancelVoicePlayback();
     }
     currentIndexRef.current = clamped;
     setCurrentIndex(clamped);
@@ -79,7 +80,7 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
     jumpSaveTimer.current = window.setTimeout(() => {
       void updateBookProgress(book.id, currentIndexRef.current);
     }, 220);
-  }, [book.id, book.tokens.length, voicePlayback.cancel]);
+  }, [book.id, book.tokens.length, cancelVoicePlayback]);
 
   const togglePlay = useCallback(() => {
     if (playingRef.current) {
@@ -100,10 +101,21 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
   }, [onSettingsChange, settings]);
 
   const changeSetting = useCallback(<Key extends keyof ReaderSettings>(key: Key, value: ReaderSettings[Key]) => {
-    voicePlayback.cancel();
+    cancelVoicePlayback();
     setPlaying(false);
     onSettingsChange({ ...settings, [key]: value });
-  }, [onSettingsChange, settings, voicePlayback]);
+  }, [cancelVoicePlayback, onSettingsChange, settings]);
+
+  const changeSettingsFromPanel = useCallback((nextSettings: ReaderSettings) => {
+    const playbackSourceChanged = nextSettings.readingMode !== settings.readingMode
+      || nextSettings.deviceVoice !== settings.deviceVoice
+      || nextSettings.kokoroVoice !== settings.kokoroVoice;
+    if (playbackSourceChanged) {
+      cancelVoicePlayback();
+      setPlaying(false);
+    }
+    onSettingsChange(nextSettings);
+  }, [cancelVoicePlayback, onSettingsChange, settings.deviceVoice, settings.kokoroVoice, settings.readingMode]);
 
   const toggleZen = useCallback(async () => {
     if (!zen) {
@@ -114,6 +126,7 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
       if (document.fullscreenElement) await document.exitFullscreen();
     }
   }, [zen]);
+  const closeSettings = useCallback(() => setShowSettings(false), []);
 
   const leaveReader = useCallback(async () => {
     setPlaying(false);
@@ -247,6 +260,19 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
   const currentWordNumber = Math.min(currentIndex + 1, book.tokens.length);
   const remaining = Math.max(0, book.tokens.length - currentWordNumber);
   const completionPercentage = currentIndex <= 0 ? 0 : (currentWordNumber / book.tokens.length) * 100;
+  const estimatedSecondsRemaining = Math.round((remaining / (settings.readingMode === "silent" ? Math.max(1, displayWpm) : 165 * settings.voiceRate)) * 60);
+  const estimatedMinutesRemaining = Math.ceil(estimatedSecondsRemaining / 60);
+  const estimatedHoursRemaining = Math.floor(estimatedMinutesRemaining / 60);
+  const estimatedMinuteRemainder = estimatedMinutesRemaining % 60;
+  const estimatedTimeRemaining = remaining === 0
+    ? "0 min"
+    : estimatedSecondsRemaining < 60
+      ? "<1 min"
+      : estimatedHoursRemaining === 0
+        ? `${estimatedMinutesRemaining} min`
+        : estimatedMinuteRemainder === 0
+          ? `${estimatedHoursRemaining} hr`
+          : `${estimatedHoursRemaining} hr ${estimatedMinuteRemainder} min`;
 
   return (
     <main
@@ -258,8 +284,12 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
         <button className="text-button" type="button" onClick={() => void leaveReader()}><span aria-hidden="true">←</span> Library</button>
         <p title={book.filename}>{book.filename}</p>
         <div>
-          <button className="icon-button" type="button" onClick={() => setShowSettings(true)} aria-label="Open settings">Aa</button>
-          <button className="icon-button" type="button" onClick={() => void toggleZen()} aria-label="Toggle fullscreen Zen mode">⌗</button>
+          <button className="icon-button" type="button" onClick={() => setShowSettings(true)} aria-label="Open settings" title="Settings">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm9 3.5-2.1-1.1.2-2.4-2.6-1.5-1.9 1.4L12.5 7 12 4.7H9L8.5 7 6.4 8.4 4.5 7 1.9 8.5l.2 2.4L0 12l2.1 1.1-.2 2.4L4.5 17l1.9-1.4L8.5 17 9 19.3h3l.5-2.3 2.1-1.4 1.9 1.4 2.6-1.5-.2-2.4L21 12Z" /></svg>
+          </button>
+          <button className="icon-button" type="button" onClick={() => void toggleZen()} aria-label={zen ? "Exit fullscreen mode" : "Enter fullscreen mode"} title={zen ? "Exit fullscreen" : "Fullscreen"}>
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 9V4h5v2H6v3H4Zm11-5h5v5h-2V6h-3V4ZM6 15v3h3v2H4v-5h2Zm12 0h2v5h-5v-2h3v-3Z" /></svg>
+          </button>
         </div>
       </header>
 
@@ -275,16 +305,7 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
 
       <ContextPreview tokens={book.tokens} currentIndex={currentIndex} visible={!playing} />
 
-      <section className="reader-lower reader-chrome">
-        {settings.readingMode === "kokoro" && voicePlayback.kokoroStatus !== "ready" && (
-          <div className="kokoro-download" role="status">
-            <span>
-              <strong>Natural voice model</strong>
-              <small>{voicePlayback.kokoroStatus === "loading" ? `Downloading locally… ${Math.round(voicePlayback.kokoroProgress)}%` : voicePlayback.kokoroStatus === "restoring" ? "Preparing cached voice…" : "One-time local download. Book text never leaves this device."}</small>
-            </span>
-            {voicePlayback.kokoroStatus === "loading" ? <progress max="100" value={voicePlayback.kokoroProgress} /> : voicePlayback.kokoroStatus === "restoring" ? <progress aria-label="Preparing cached voice" /> : <button type="button" onClick={() => voicePlayback.prepareKokoro()}>Download model</button>}
-          </div>
-        )}
+      <section className="reader-lower">
         {voicePlayback.error && <p className="voice-error" role="alert">{voicePlayback.error}</p>}
         {settings.readingMode === "kokoro" && playing && voicePlayback.kokoroPlaybackStatus === "generating" && <p className="voice-status" role="status">Preparing the next spoken passage…</p>}
         {settings.readingMode === "kokoro" && voicePlayback.kokoroStatus === "ready" && (
@@ -295,7 +316,7 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
         <div className="progress-copy">
           <strong>{completionPercentage.toFixed(2)}%</strong>
           <span>{new Intl.NumberFormat().format(currentWordNumber)} / {new Intl.NumberFormat().format(book.tokens.length)}</span>
-          <small>{new Intl.NumberFormat().format(remaining)} words remaining</small>
+          <small>{new Intl.NumberFormat().format(remaining)} words · ~{estimatedTimeRemaining} left</small>
         </div>
         <input
           className="progress-range"
@@ -318,20 +339,24 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
           onWpmChange={changeWpm}
           mode={settings.readingMode}
           voiceRate={settings.voiceRate}
-          voices={voicePlayback.voices}
-          selectedVoice={settings.deviceVoice}
-          kokoroVoice={settings.kokoroVoice}
-          speechAvailable={voicePlayback.speechAvailable}
-          onModeChange={(mode) => changeSetting("readingMode", mode)}
           onVoiceRateChange={(rate) => changeSetting("voiceRate", normalizeVoiceRate(rate))}
-          onDeviceVoiceChange={(voice) => changeSetting("deviceVoice", voice)}
-          onKokoroVoiceChange={(voice) => changeSetting("kokoroVoice", voice)}
         />
-        {settings.readingMode === "kokoro" && voicePlayback.kokoroStatus === "ready" && <button className="remove-model-button" type="button" onClick={() => void voicePlayback.removeKokoro()}>Remove downloaded voice model</button>}
       </section>
 
       {zen && <button className="zen-exit reader-chrome" type="button" onClick={() => void toggleZen()}>Exit Zen</button>}
-      {showSettings && <Settings settings={settings} onChange={onSettingsChange} onClose={() => setShowSettings(false)} />}
+      {showSettings && (
+        <Settings
+          settings={settings}
+          onChange={changeSettingsFromPanel}
+          onClose={closeSettings}
+          voices={voicePlayback.voices}
+          speechAvailable={voicePlayback.speechAvailable}
+          kokoroStatus={voicePlayback.kokoroStatus}
+          kokoroProgress={voicePlayback.kokoroProgress}
+          onPrepareKokoro={() => voicePlayback.prepareKokoro()}
+          onRemoveKokoro={() => void voicePlayback.removeKokoro()}
+        />
+      )}
     </main>
   );
 }

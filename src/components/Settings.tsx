@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type {
   FocusGuides,
   LongWordAssistance,
@@ -16,9 +17,15 @@ type SettingsProps = {
   settings: ReaderSettings;
   onChange: (settings: ReaderSettings) => void;
   onClose: () => void;
+  voices: SpeechSynthesisVoice[];
+  speechAvailable: boolean;
+  kokoroStatus: "idle" | "loading" | "restoring" | "ready" | "error";
+  kokoroProgress: number;
+  onPrepareKokoro: () => void;
+  onRemoveKokoro: () => void;
 };
 
-type Choice<Value extends string | number> = { value: Value; label: string };
+type Choice<Value extends string | number> = { value: Value; label: string; disabled?: boolean };
 
 type ChoiceGroupProps<Value extends string | number> = {
   label: string;
@@ -36,6 +43,7 @@ function ChoiceGroup<Value extends string | number>({ label, value, choices, onC
           key={choice.value}
           type="button"
           aria-pressed={choice.value === value}
+          disabled={choice.disabled}
           onClick={() => onChange(choice.value)}
         >
           {choice.label}
@@ -89,8 +97,49 @@ const MODE_CHOICES: Array<Choice<ReadingMode>> = [
   { value: "device", label: "Voice + RSVP" },
   { value: "kokoro", label: "Kokoro" },
 ];
+const KOKORO_VOICES = [
+  { value: "af_heart", label: "Heart · US" },
+  { value: "af_bella", label: "Bella · US" },
+  { value: "am_fenrir", label: "Fenrir · US" },
+  { value: "bf_emma", label: "Emma · UK" },
+  { value: "bm_fable", label: "Fable · UK" },
+];
 
-export function Settings({ settings, onChange, onClose }: SettingsProps) {
+export function Settings({ settings, onChange, onClose, voices, speechAvailable, kokoroStatus, kokoroProgress, onPrepareKokoro, onRemoveKokoro }: SettingsProps) {
+  const panelRef = useRef<HTMLElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(panelRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), select:not([disabled]), input:not([disabled]), summary, [href], [tabindex]:not([tabindex="-1"])',
+      ) ?? []);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    closeButtonRef.current?.focus();
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, [onClose]);
+
   const set = <Key extends keyof ReaderSettings>(key: Key, value: ReaderSettings[Key]) => {
     onChange({ ...settings, [key]: value });
   };
@@ -105,14 +154,54 @@ export function Settings({ settings, onChange, onClose }: SettingsProps) {
 
   return (
     <div className="settings-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div ref={panelRef} className="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <header>
           <div>
             <p className="eyebrow">Reading preferences</p>
             <h2 id="settings-title">Settings</h2>
           </div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="Close settings">×</button>
+          <button ref={closeButtonRef} className="icon-button" type="button" onClick={onClose} aria-label="Close settings">×</button>
         </header>
+
+        <section className="settings-section" aria-labelledby="playback-heading">
+          <h3 id="playback-heading">Playback</h3>
+          <div className="compact-setting compact-setting--stacked">
+            <span><strong>Modes</strong><small>Choose silent timing or voice-led reading</small></span>
+            <ChoiceGroup
+              label="Reading mode"
+              value={settings.readingMode}
+              choices={MODE_CHOICES.map((choice) => choice.value === "device" ? { ...choice, disabled: !speechAvailable } : choice)}
+              onChange={(value) => set("readingMode", value)}
+            />
+          </div>
+          <div className="compact-setting">
+            <span><strong>Voice</strong><small>{settings.readingMode === "silent" ? "Available in spoken modes" : "Saved on this device"}</small></span>
+            {settings.readingMode === "device" ? (
+              <select className="settings-select" value={settings.deviceVoice} onChange={(event) => set("deviceVoice", event.target.value)} aria-label="Device voice">
+                <option value="">Device default</option>
+                {voices.map((voice) => <option key={voice.voiceURI} value={voice.voiceURI}>{voice.name} · {voice.lang}</option>)}
+              </select>
+            ) : settings.readingMode === "kokoro" ? (
+              <select className="settings-select" value={settings.kokoroVoice} onChange={(event) => set("kokoroVoice", event.target.value)} aria-label="Kokoro voice">
+                {KOKORO_VOICES.map((voice) => <option key={voice.value} value={voice.value}>{voice.label}</option>)}
+              </select>
+            ) : <span className="setting-muted">Choose a spoken mode above</span>}
+          </div>
+          {(settings.readingMode === "kokoro" || kokoroStatus === "ready") && (
+            <div className="model-management">
+              <span><strong>Natural voice model</strong><small>Stored locally for private offline use</small></span>
+              {kokoroStatus === "ready" ? (
+                <button className="danger-text-button" type="button" onClick={() => window.confirm("Remove the downloaded Kokoro model? It will need to be downloaded again before natural voice playback.") && onRemoveKokoro()}>Remove downloaded voice model</button>
+              ) : kokoroStatus === "loading" ? (
+                <span className="model-progress">Downloading… {Math.round(kokoroProgress)}%</span>
+              ) : kokoroStatus === "restoring" ? (
+                <span className="model-progress">Preparing cached voice…</span>
+              ) : (
+                <button className="secondary-button" type="button" onClick={onPrepareKokoro}>Download voice model</button>
+              )}
+            </div>
+          )}
+        </section>
 
         <section className="settings-section" aria-labelledby="profile-heading">
           <h3 id="profile-heading">Reading profile</h3>
@@ -173,10 +262,6 @@ export function Settings({ settings, onChange, onClose }: SettingsProps) {
 
         <section className="settings-section" aria-labelledby="reading-heading">
           <h3 id="reading-heading">Reading</h3>
-          <div className="compact-setting compact-setting--stacked">
-            <span><strong>Reading mode</strong><small>Silent timing or voice-led RSVP</small></span>
-            <ChoiceGroup label="Reading mode" value={settings.readingMode} choices={MODE_CHOICES} onChange={(value) => set("readingMode", value)} />
-          </div>
           <div className="range-setting">
             <span><label htmlFor="setting-wpm"><strong>Speed</strong></label><small>{settings.wpm} words per minute</small></span>
             <input id="setting-wpm" type="range" min="100" max="1000" step="10" value={settings.wpm} onChange={(event) => set("wpm", Number(event.target.value))} />
@@ -211,7 +296,7 @@ export function Settings({ settings, onChange, onClose }: SettingsProps) {
         </section>
 
         <p className="shortcut-note"><kbd>Space</kbd> play · hold <kbd>S</kbd> slow · <kbd>←</kbd><kbd>→</kbd> move · <kbd>R</kbd> sentence · <kbd>F</kbd> Zen</p>
-      </section>
+      </div>
     </div>
   );
 }
