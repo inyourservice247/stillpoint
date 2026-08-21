@@ -8,6 +8,7 @@ import {
 } from "../utils/voice";
 
 type KokoroStatus = "idle" | "loading" | "restoring" | "ready" | "error";
+type KokoroPlaybackStatus = "idle" | "generating" | "playing";
 
 const KOKORO_ENABLED_KEY = "stillpoint:kokoro-enabled:v1";
 const KOKORO_CACHED_KEY = "stillpoint:kokoro-cached:v1";
@@ -29,6 +30,7 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [kokoroStatus, setKokoroStatus] = useState<KokoroStatus>("idle");
   const [kokoroProgress, setKokoroProgress] = useState(0);
+  const [kokoroPlaybackStatus, setKokoroPlaybackStatus] = useState<KokoroPlaybackStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const pendingRef = useRef(new Map<number, PendingAudio>());
@@ -70,8 +72,22 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
     audioSourceRef.current?.stop();
     audioSourceRef.current = null;
+    setKokoroPlaybackStatus("idle");
     if (audioContextRef.current?.state === "suspended") void audioContextRef.current.resume();
   }, [clearTimers]);
+
+  const unlockKokoroAudio = useCallback(() => {
+    const existing = audioContextRef.current;
+    const context = !existing || existing.state === "closed" ? new AudioContext() : existing;
+    audioContextRef.current = context;
+    void context.resume();
+    const silentBuffer = context.createBuffer(1, 1, context.sampleRate);
+    const silentSource = context.createBufferSource();
+    silentSource.buffer = silentBuffer;
+    silentSource.connect(context.destination);
+    silentSource.start();
+    return context;
+  }, []);
 
   useEffect(() => cancel, [book.id, cancel]);
 
@@ -217,24 +233,35 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
   const playKokoroSentenceRef = useRef<(index: number, generation: number) => void>(() => undefined);
   playKokoroSentenceRef.current = (index, generation) => {
     const chunk = getSentenceChunk(book, index);
+    setKokoroPlaybackStatus("generating");
     void getKokoroAudio(index).then(async ({ samples, sampleRate }) => {
       if (generationRef.current !== generation || !activeRef.current) return;
-      const context = audioContextRef.current ?? new AudioContext();
+      if (!(samples instanceof Float32Array) || samples.length === 0 || !Number.isFinite(sampleRate) || sampleRate <= 0) {
+        throw new Error("Kokoro generated an empty audio buffer.");
+      }
+      const context = audioContextRef.current ?? unlockKokoroAudio();
       audioContextRef.current = context;
       if (context.state === "suspended") await context.resume();
+      if (context.state !== "running") throw new Error(`Audio playback is ${context.state}.`);
       const buffer = context.createBuffer(1, samples.length, sampleRate);
       buffer.copyToChannel(new Float32Array(samples), 0);
       const source = context.createBufferSource();
       source.buffer = buffer;
       source.connect(context.destination);
-      source.onended = () => finishOrContinue(chunk.end, generation, playKokoroSentenceRef.current);
+      source.onended = () => {
+        setKokoroPlaybackStatus("idle");
+        finishOrContinue(chunk.end, generation, playKokoroSentenceRef.current);
+      };
       audioSourceRef.current = source;
       scheduleLinearSync(chunk.start, chunk.end, buffer.duration * 1000, generation);
       source.start();
+      setKokoroPlaybackStatus("playing");
       if (chunk.end < book.tokens.length - 1) void getKokoroAudio(chunk.end + 1);
-    }).catch(() => {
+    }).catch((cause) => {
       if (generationRef.current !== generation) return;
-      setError("Natural voice generation failed. Silent RSVP and device voices remain available.");
+      setKokoroPlaybackStatus("idle");
+      const detail = cause instanceof Error ? cause.message : "Unknown playback error";
+      setError(`Natural voice could not play: ${detail}`);
       activeRef.current = false;
       onFinish();
     });
@@ -243,9 +270,7 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
   const start = useCallback(() => {
     setError(null);
     if (settings.readingMode === "kokoro") {
-      const context = audioContextRef.current ?? new AudioContext();
-      audioContextRef.current = context;
-      void context.resume();
+      unlockKokoroAudio();
     }
     if (pausedRef.current) {
       pausedRef.current = false;
@@ -274,7 +299,7 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
     if (settings.readingMode === "device") playDeviceSentenceRef.current(currentIndex, generation);
     else playKokoroSentenceRef.current(currentIndex, generation);
     return true;
-  }, [cancel, clearTimers, currentIndex, kokoroStatus, settings.readingMode]);
+  }, [cancel, clearTimers, currentIndex, kokoroStatus, settings.readingMode, unlockKokoroAudio]);
 
   const pause = useCallback(() => {
     activeRef.current = false;
@@ -318,6 +343,7 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
     speechAvailable: "speechSynthesis" in window,
     kokoroStatus,
     kokoroProgress,
+    kokoroPlaybackStatus,
     error,
     start,
     pause,

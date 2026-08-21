@@ -287,6 +287,7 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
           </div>
         )}
         {voicePlayback.error && <p className="voice-error" role="alert">{voicePlayback.error}</p>}
+        {settings.readingMode === "kokoro" && playing && voicePlayback.kokoroPlaybackStatus === "generating" && <p className="voice-status" role="status">Preparing the next spoken passage…</p>}
         <div className="progress-copy">
           <strong>{completionPercentage.toFixed(2)}%</strong>
           <span>{new Intl.NumberFormat().format(currentWordNumber)} / {new Intl.NumberFormat().format(book.tokens.length)}</span>
