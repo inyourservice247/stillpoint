@@ -281,9 +281,9 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
           <div className="kokoro-download" role="status">
             <span>
               <strong>Natural voice model</strong>
-              <small>{voicePlayback.kokoroStatus === "loading" ? `Downloading locally… ${Math.round(voicePlayback.kokoroProgress)}%` : "One-time local download. Book text never leaves this device."}</small>
+              <small>{voicePlayback.kokoroStatus === "loading" ? `Downloading locally… ${Math.round(voicePlayback.kokoroProgress)}%` : voicePlayback.kokoroStatus === "restoring" ? "Preparing cached voice…" : "One-time local download. Book text never leaves this device."}</small>
             </span>
-            {voicePlayback.kokoroStatus === "loading" ? <progress max="100" value={voicePlayback.kokoroProgress} /> : <button type="button" onClick={voicePlayback.prepareKokoro}>Download model</button>}
+            {voicePlayback.kokoroStatus === "loading" ? <progress max="100" value={voicePlayback.kokoroProgress} /> : voicePlayback.kokoroStatus === "restoring" ? <progress aria-label="Preparing cached voice" /> : <button type="button" onClick={() => voicePlayback.prepareKokoro()}>Download model</button>}
           </div>
         )}
         {voicePlayback.error && <p className="voice-error" role="alert">{voicePlayback.error}</p>}

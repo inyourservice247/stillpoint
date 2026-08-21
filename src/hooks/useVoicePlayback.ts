@@ -3,11 +3,13 @@ import type { LoadedBook, ReaderSettings } from "../types/Book";
 import {
   estimatedSpeechDuration,
   getSentenceChunk,
-  getSpeechWeights,
   tokenIndexForBoundary,
 } from "../utils/voice";
 
-type KokoroStatus = "idle" | "loading" | "ready" | "error";
+type KokoroStatus = "idle" | "loading" | "restoring" | "ready" | "error";
+
+const KOKORO_ENABLED_KEY = "stillpoint:kokoro-enabled:v1";
+const KOKORO_CACHED_KEY = "stillpoint:kokoro-cached:v1";
 
 type VoicePlaybackOptions = {
   book: LoadedBook;
@@ -73,26 +75,18 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
     onIndex(index);
   }, [book.tokens.length, onIndex]);
 
-  const scheduleFallback = useCallback((start: number, end: number, duration: number, generation: number) => {
+  const scheduleLinearSync = useCallback((start: number, end: number, duration: number, generation: number) => {
     clearTimers();
-    const tokens = book.tokens.slice(start, end + 1);
-    const weights = getSpeechWeights(tokens);
-    const totalWeight = weights.reduce((sum, value) => sum + value, 0);
-    let elapsedWeight = 0;
-    weights.forEach((weight, relativeIndex) => {
-      if (relativeIndex === 0) {
-        elapsedWeight += weight;
-        return;
-      }
-      const delay = duration * (elapsedWeight / totalWeight);
+    const tokenCount = end - start + 1;
+    for (let relativeIndex = 1; relativeIndex < tokenCount; relativeIndex += 1) {
+      const delay = duration * (relativeIndex / tokenCount);
       timersRef.current.push(window.setTimeout(() => {
         if (generationRef.current === generation && activeRef.current && !pausedRef.current) {
           advance(start + relativeIndex);
         }
       }, delay));
-      elapsedWeight += weight;
-    });
-  }, [advance, book.tokens, clearTimers]);
+    }
+  }, [advance, clearTimers]);
 
   const finishOrContinue = useCallback((end: number, generation: number, playSentence: (index: number, generation: number) => void) => {
     clearTimers();
@@ -126,6 +120,7 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
     if (selected) utterance.voice = selected;
     utterance.onboundary = (event) => {
       if (generationRef.current !== generation || event.name === "sentence") return;
+      clearTimers();
       advance(tokenIndexForBoundary(chunk, event.charIndex));
     };
     utterance.onerror = (event) => {
@@ -135,7 +130,7 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
       onFinish();
     };
     utterance.onend = () => finishOrContinue(chunk.end, generation, playDeviceSentenceRef.current);
-    scheduleFallback(chunk.start, chunk.end, estimatedSpeechDuration(book.tokens.slice(chunk.start, chunk.end + 1), settings.voiceRate, "device"), generation);
+    scheduleLinearSync(chunk.start, chunk.end, estimatedSpeechDuration(chunk.end - chunk.start + 1, settings.voiceRate), generation);
     window.speechSynthesis.speak(utterance);
   };
 
@@ -150,6 +145,7 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
       } else if (message.type === "ready") {
         setKokoroStatus("ready");
         setKokoroProgress(100);
+        localStorage.setItem(KOKORO_CACHED_KEY, "true");
       } else if (message.type === "audio") {
         const pending = pendingRef.current.get(message.requestId);
         if (pending) {
@@ -175,11 +171,11 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
     return worker;
   }, []);
 
-  const prepareKokoro = useCallback(() => {
+  const prepareKokoro = useCallback((restoring = false) => {
     setError(null);
-    setKokoroStatus("loading");
+    setKokoroStatus(restoring ? "restoring" : "loading");
     setKokoroProgress(0);
-    localStorage.setItem("stillpoint:kokoro-enabled:v1", "true");
+    localStorage.setItem(KOKORO_ENABLED_KEY, "true");
     ensureWorker().postMessage({ type: "load" });
   }, [ensureWorker]);
 
@@ -218,7 +214,7 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
       source.connect(context.destination);
       source.onended = () => finishOrContinue(chunk.end, generation, playKokoroSentenceRef.current);
       audioSourceRef.current = source;
-      scheduleFallback(chunk.start, chunk.end, buffer.duration * 1000, generation);
+      scheduleLinearSync(chunk.start, chunk.end, buffer.duration * 1000, generation);
       source.start();
       if (chunk.end < book.tokens.length - 1) void getKokoroAudio(chunk.end + 1);
     }).catch(() => {
@@ -231,6 +227,11 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
 
   const start = useCallback(() => {
     setError(null);
+    if (settings.readingMode === "kokoro") {
+      const context = audioContextRef.current ?? new AudioContext();
+      audioContextRef.current = context;
+      void context.resume();
+    }
     if (pausedRef.current) {
       pausedRef.current = false;
       activeRef.current = true;
@@ -279,13 +280,16 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
       const keys = await caches.keys();
       await Promise.all(keys.filter((key) => /transformers|kokoro/i.test(key)).map((key) => caches.delete(key)));
     }
-    localStorage.removeItem("stillpoint:kokoro-enabled:v1");
+    localStorage.removeItem(KOKORO_ENABLED_KEY);
+    localStorage.removeItem(KOKORO_CACHED_KEY);
     setKokoroStatus("idle");
     setKokoroProgress(0);
   }, [cancel]);
 
   useEffect(() => {
-    if (localStorage.getItem("stillpoint:kokoro-enabled:v1") === "true") prepareKokoro();
+    if (localStorage.getItem(KOKORO_ENABLED_KEY) === "true") {
+      prepareKokoro(localStorage.getItem(KOKORO_CACHED_KEY) === "true");
+    }
   }, [prepareKokoro]);
 
   useEffect(() => () => {
