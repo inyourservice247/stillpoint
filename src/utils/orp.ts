@@ -51,11 +51,12 @@ export function getOrpFit(text: string, requestedSize: number, viewportWidth: nu
   const longerSide = Math.max(splitGraphemes(left).length, splitGraphemes(right).length, 1);
   const halfWidth = Math.max(100, viewportWidth * 0.5 - Math.max(26, viewportWidth * 0.055));
   const estimatedWidthAtRequestedSize = (longerSide + 0.55) * requestedSize * 0.62;
-  const idealSize = requestedSize * Math.min(1, halfWidth / estimatedWidthAtRequestedSize);
-  const minimumSize = Math.min(22, requestedSize);
-  const fontSize = Math.max(minimumSize, Math.floor(idealSize));
+  const fitRatio = Math.min(1, halfWidth / estimatedWidthAtRequestedSize);
   return {
-    fontSize,
-    sideScale: Math.min(1, Math.max(0.28, idealSize / fontSize)),
+    // Keep the reader's chosen text size stable from token to token. On narrow
+    // screens, compress only the unusually long outer sections so the ORP stays
+    // fixed without making the whole word visibly jump in size.
+    fontSize: requestedSize,
+    sideScale: Math.min(1, Math.max(0.28, fitRatio)),
   };
 }
