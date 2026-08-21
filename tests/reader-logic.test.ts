@@ -6,7 +6,7 @@ import { normalizeText } from "../src/utils/textNormalization";
 import { applyProfile, inferProfile, updateAppearance } from "../src/utils/appearance";
 import { findSentenceStart, getLengthMultiplier, getTemporaryWpm, getTokenDuration } from "../src/utils/timing";
 import { tokenizeText } from "../src/utils/tokenize";
-import { estimatedSpeechDuration, getLinearSpeechIndex, getSentenceChunk, normalizeVoiceRate, tokenIndexForBoundary } from "../src/utils/voice";
+import { estimatedSpeechDuration, getKokoroPassageChunk, getLinearSpeechIndex, getSentenceChunk, normalizeVoiceRate, tokenIndexForBoundary } from "../src/utils/voice";
 
 const SAMPLE = `The organisation — however — continued operating.
 
@@ -167,4 +167,12 @@ test("device voice fallback advances continuously without browser boundaries", (
   assert.equal(getLinearSpeechIndex(10, 14, 0, 1_000), 10);
   assert.equal(getLinearSpeechIndex(10, 14, 400, 1_000), 12);
   assert.equal(getLinearSpeechIndex(10, 14, 1_000, 1_000), 14);
+});
+
+test("Kokoro passages rewind to a sentence start and batch following sentences", () => {
+  const document = tokenizeText("First sentence has words. Second sentence has words. Third sentence has words.");
+  const passage = getKokoroPassageChunk({ tokens: document.tokens, sentenceStarts: document.sentenceStarts } as never, 5, 6);
+  assert.equal(passage.start, 4);
+  assert.equal(passage.end, 11);
+  assert.match(passage.text, /^Second sentence/);
 });

@@ -28,6 +28,32 @@ export function getSentenceChunk(book: Pick<LoadedBook, "tokens" | "sentenceStar
   return { start, end, text, tokenOffsets };
 }
 
+export function getKokoroPassageChunk(book: Pick<LoadedBook, "tokens" | "sentenceStarts">, tokenIndex: number, targetTokens = 55): SentenceChunk {
+  const starts = book.sentenceStarts.length ? book.sentenceStarts : [0];
+  let start = 0;
+  for (const candidate of starts) {
+    if (candidate > tokenIndex) break;
+    start = candidate;
+  }
+  let end = book.tokens.length - 1;
+  for (const candidate of starts) {
+    if (candidate <= start) continue;
+    if (candidate - start > targetTokens) {
+      end = candidate - 1;
+      break;
+    }
+  }
+  const passageTokens = book.tokens.slice(start, end + 1);
+  const tokenOffsets: number[] = [];
+  let text = "";
+  for (const token of passageTokens) {
+    if (text) text += " ";
+    tokenOffsets.push(text.length);
+    text += token.text;
+  }
+  return { start, end, text, tokenOffsets };
+}
+
 export function tokenIndexForBoundary(chunk: SentenceChunk, charIndex: number): number {
   let relativeIndex = 0;
   for (let index = 0; index < chunk.tokenOffsets.length; index += 1) {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { LoadedBook, ReaderSettings } from "../types/Book";
 import {
   estimatedSpeechDuration,
+  getKokoroPassageChunk,
   getLinearSpeechIndex,
   getSentenceChunk,
   tokenIndexForBoundary,
@@ -26,6 +27,11 @@ type PendingAudio = {
   reject: (error: Error) => void;
 };
 
+type ActiveKokoroBuffer = {
+  buffer: AudioBuffer;
+  chunk: ReturnType<typeof getKokoroPassageChunk>;
+};
+
 export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFinish }: VoicePlaybackOptions) {
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [kokoroStatus, setKokoroStatus] = useState<KokoroStatus>("idle");
@@ -46,6 +52,7 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
   const kokoroAudioCacheRef = useRef(new Map<string, Promise<{ samples: Float32Array; sampleRate: number }>>());
   const kokoroReadyAudioRef = useRef(new Set<string>());
   const kokoroSessionStartedRef = useRef(false);
+  const activeKokoroBufferRef = useRef<ActiveKokoroBuffer | null>(null);
 
   useEffect(() => { latestIndexRef.current = currentIndex; }, [currentIndex]);
 
@@ -74,6 +81,7 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
     audioSourceRef.current?.stop();
     audioSourceRef.current = null;
+    activeKokoroBufferRef.current = null;
     kokoroSessionStartedRef.current = false;
     setKokoroPlaybackStatus("idle");
     if (audioContextRef.current?.state === "suspended") void audioContextRef.current.resume();
@@ -222,7 +230,7 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
   }, [ensureWorker]);
 
   const getKokoroAudio = useCallback((index: number) => {
-    const chunk = getSentenceChunk(book, index);
+    const chunk = getKokoroPassageChunk(book, index);
     const key = `${chunk.start}:${settings.kokoroVoice}:${settings.voiceRate}`;
     let audio = kokoroAudioCacheRef.current.get(key);
     if (!audio) {
@@ -240,7 +248,7 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
   }, [book, generateKokoro, settings.kokoroVoice, settings.voiceRate]);
 
   const isKokoroAudioReady = useCallback((index: number) => {
-    const chunk = getSentenceChunk(book, index);
+    const chunk = getKokoroPassageChunk(book, index);
     return kokoroReadyAudioRef.current.has(`${chunk.start}:${settings.kokoroVoice}:${settings.voiceRate}`);
   }, [book, settings.kokoroVoice, settings.voiceRate]);
 
@@ -248,7 +256,7 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
     const requests: Array<Promise<{ samples: Float32Array; sampleRate: number }>> = [];
     let cursor = index;
     for (let position = 0; position < count && cursor < book.tokens.length; position += 1) {
-      const chunk = getSentenceChunk(book, cursor);
+      const chunk = getKokoroPassageChunk(book, cursor);
       requests.push(getKokoroAudio(cursor));
       cursor = chunk.end + 1;
     }
@@ -257,10 +265,11 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
 
   const playKokoroSentenceRef = useRef<(index: number, generation: number) => void>(() => undefined);
   playKokoroSentenceRef.current = (index, generation) => {
-    const chunk = getSentenceChunk(book, index);
+    const chunk = getKokoroPassageChunk(book, index);
     const initialBuffer = !kokoroSessionStartedRef.current;
     if (initialBuffer || !isKokoroAudioReady(index)) setKokoroPlaybackStatus("generating");
-    const buffered = initialBuffer ? Promise.all(prefetchKokoro(index, 2)).then(([audio]) => audio) : getKokoroAudio(index);
+    const initialRequests = initialBuffer ? prefetchKokoro(index, 2) : null;
+    const buffered = initialRequests?.[0] ?? getKokoroAudio(index);
     void buffered.then(async ({ samples, sampleRate }) => {
       if (generationRef.current !== generation || !activeRef.current) return;
       if (!(samples instanceof Float32Array) || samples.length === 0 || !Number.isFinite(sampleRate) || sampleRate <= 0) {
@@ -276,10 +285,13 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
       source.buffer = buffer;
       source.connect(context.destination);
       source.onended = () => {
+        if (generationRef.current !== generation) return;
+        activeKokoroBufferRef.current = null;
         setKokoroPlaybackStatus("idle");
         finishOrContinue(chunk.end, generation, playKokoroSentenceRef.current);
       };
       audioSourceRef.current = source;
+      activeKokoroBufferRef.current = { buffer, chunk };
       scheduleLinearSync(chunk.start, chunk.end, buffer.duration * 1000, generation);
       source.start();
       kokoroSessionStartedRef.current = true;
@@ -311,10 +323,38 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
         window.speechSynthesis.cancel();
         playDeviceSentenceRef.current(currentIndex, generation);
       } else {
+        const activeBuffer = activeKokoroBufferRef.current;
         audioSourceRef.current?.stop();
         audioSourceRef.current = null;
-        void audioContextRef.current?.resume();
-        playKokoroSentenceRef.current(currentIndex, generation);
+        const sentenceStart = getKokoroPassageChunk(book, currentIndex).start;
+        latestIndexRef.current = sentenceStart;
+        onIndex(sentenceStart);
+        if (activeBuffer && sentenceStart >= activeBuffer.chunk.start && sentenceStart <= activeBuffer.chunk.end && audioContextRef.current) {
+          const context = audioContextRef.current;
+          void context.resume();
+          const tokenCount = activeBuffer.chunk.end - activeBuffer.chunk.start + 1;
+          const offset = activeBuffer.buffer.duration * ((sentenceStart - activeBuffer.chunk.start) / tokenCount);
+          const source = context.createBufferSource();
+          source.buffer = activeBuffer.buffer;
+          source.connect(context.destination);
+          source.onended = () => {
+            if (generationRef.current !== generation) return;
+            activeKokoroBufferRef.current = null;
+            setKokoroPlaybackStatus("idle");
+            finishOrContinue(activeBuffer.chunk.end, generation, playKokoroSentenceRef.current);
+          };
+          audioSourceRef.current = source;
+          activeKokoroBufferRef.current = activeBuffer;
+          scheduleLinearSync(sentenceStart, activeBuffer.chunk.end, (activeBuffer.buffer.duration - offset) * 1000, generation);
+          source.start(0, offset);
+          setKokoroPlaybackStatus("playing");
+          if (activeBuffer.chunk.end < book.tokens.length - 1) {
+            for (const request of prefetchKokoro(activeBuffer.chunk.end + 1, 3)) void request;
+          }
+        } else {
+          activeKokoroBufferRef.current = null;
+          playKokoroSentenceRef.current(sentenceStart, generation);
+        }
       }
       return true;
     }
@@ -329,7 +369,7 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
     if (settings.readingMode === "device") playDeviceSentenceRef.current(currentIndex, generation);
     else playKokoroSentenceRef.current(currentIndex, generation);
     return true;
-  }, [cancel, clearTimers, currentIndex, kokoroStatus, settings.readingMode, unlockKokoroAudio]);
+  }, [book, cancel, clearTimers, currentIndex, finishOrContinue, kokoroStatus, onIndex, prefetchKokoro, scheduleLinearSync, settings.readingMode, unlockKokoroAudio]);
 
   const pause = useCallback(() => {
     activeRef.current = false;
@@ -348,6 +388,7 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
     kokoroAudioCacheRef.current.clear();
     kokoroReadyAudioRef.current.clear();
     kokoroSessionStartedRef.current = false;
+    activeKokoroBufferRef.current = null;
     if ("caches" in window) {
       const keys = await caches.keys();
       await Promise.all(keys.filter((key) => /transformers|kokoro/i.test(key)).map((key) => caches.delete(key)));
