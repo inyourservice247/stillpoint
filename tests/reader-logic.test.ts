@@ -6,7 +6,7 @@ import { normalizeText } from "../src/utils/textNormalization";
 import { applyProfile, inferProfile, updateAppearance } from "../src/utils/appearance";
 import { findSentenceStart, getLengthMultiplier, getTemporaryWpm, getTokenDuration } from "../src/utils/timing";
 import { tokenizeText } from "../src/utils/tokenize";
-import { estimatedSpeechDuration, getSentenceChunk, normalizeVoiceRate, tokenIndexForBoundary } from "../src/utils/voice";
+import { estimatedSpeechDuration, getLinearSpeechIndex, getSentenceChunk, normalizeVoiceRate, tokenIndexForBoundary } from "../src/utils/voice";
 
 const SAMPLE = `The organisation — however — continued operating.
 
@@ -161,4 +161,10 @@ test("voice fallback timing scales smoothly and clamps speed", () => {
   assert.equal(normalizeVoiceRate(0.1), 0.6);
   assert.equal(normalizeVoiceRate(1.26), 1.3);
   assert.equal(normalizeVoiceRate(3), 2);
+});
+
+test("device voice fallback advances continuously without browser boundaries", () => {
+  assert.equal(getLinearSpeechIndex(10, 14, 0, 1_000), 10);
+  assert.equal(getLinearSpeechIndex(10, 14, 400, 1_000), 12);
+  assert.equal(getLinearSpeechIndex(10, 14, 1_000, 1_000), 14);
 });

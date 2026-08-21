@@ -38,7 +38,13 @@ export function tokenIndexForBoundary(chunk: SentenceChunk, charIndex: number): 
 }
 
 export function estimatedSpeechDuration(tokenCount: number, rate: number): number {
-  return Math.max(250, tokenCount * (60_000 / (180 * rate)));
+  return Math.max(250, tokenCount * (60_000 / (165 * rate)));
+}
+
+export function getLinearSpeechIndex(start: number, end: number, elapsed: number, duration: number): number {
+  const tokenCount = end - start + 1;
+  const progress = duration <= 0 ? 1 : Math.max(0, Math.min(1, elapsed / duration));
+  return start + Math.min(tokenCount - 1, Math.floor(progress * tokenCount));
 }
 
 export function normalizeVoiceRate(rate: number): number {

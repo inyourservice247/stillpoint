@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { LoadedBook, ReaderSettings } from "../types/Book";
 import {
   estimatedSpeechDuration,
+  getLinearSpeechIndex,
   getSentenceChunk,
   tokenIndexForBoundary,
 } from "../utils/voice";
@@ -37,6 +38,7 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
   const pausedRef = useRef(false);
   const latestIndexRef = useRef(currentIndex);
   const timersRef = useRef<number[]>([]);
+  const deviceFallbackRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const kokoroAudioCacheRef = useRef(new Map<string, Promise<{ samples: Float32Array; sampleRate: number }>>());
@@ -54,6 +56,10 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
   const clearTimers = useCallback(() => {
     for (const timer of timersRef.current) window.clearTimeout(timer);
     timersRef.current = [];
+    if (deviceFallbackRef.current !== null) {
+      window.clearInterval(deviceFallbackRef.current);
+      deviceFallbackRef.current = null;
+    }
   }, []);
 
   const cancel = useCallback(() => {
@@ -88,6 +94,16 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
     }
   }, [advance, clearTimers]);
 
+  const startDeviceFallback = useCallback((start: number, end: number, duration: number, generation: number) => {
+    clearTimers();
+    const startedAt = performance.now();
+    deviceFallbackRef.current = window.setInterval(() => {
+      if (generationRef.current !== generation || !activeRef.current || pausedRef.current) return;
+      const elapsed = performance.now() - startedAt;
+      advance(getLinearSpeechIndex(start, end, elapsed, duration));
+    }, 50);
+  }, [advance, clearTimers]);
+
   const finishOrContinue = useCallback((end: number, generation: number, playSentence: (index: number, generation: number) => void) => {
     clearTimers();
     if (generationRef.current !== generation || !activeRef.current) return;
@@ -120,7 +136,6 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
     if (selected) utterance.voice = selected;
     utterance.onboundary = (event) => {
       if (generationRef.current !== generation || event.name === "sentence") return;
-      clearTimers();
       advance(tokenIndexForBoundary(chunk, event.charIndex));
     };
     utterance.onerror = (event) => {
@@ -130,7 +145,7 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
       onFinish();
     };
     utterance.onend = () => finishOrContinue(chunk.end, generation, playDeviceSentenceRef.current);
-    scheduleLinearSync(chunk.start, chunk.end, estimatedSpeechDuration(chunk.end - chunk.start + 1, settings.voiceRate), generation);
+    startDeviceFallback(chunk.start, chunk.end, estimatedSpeechDuration(chunk.end - chunk.start + 1, settings.voiceRate), generation);
     window.speechSynthesis.speak(utterance);
   };
 
