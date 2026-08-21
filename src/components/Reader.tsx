@@ -219,9 +219,8 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
     const onVisibility = () => {
       if (document.visibilityState === "hidden") {
         checkpoint();
-        if (playingRef.current) {
+        if (playingRef.current && settings.readingMode === "silent") {
           setPlaying(false);
-          voicePlayback.cancel();
         }
         void updateBookProgress(book.id, currentIndexRef.current);
       }
@@ -235,7 +234,7 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
       document.removeEventListener("visibilitychange", onVisibility);
       checkpoint();
     };
-  }, [book.id, voicePlayback.cancel]);
+  }, [book.id, settings.readingMode]);
 
   const fontClass = `reader-font--${settings.fontFamily}`;
   const appearanceClasses = [
