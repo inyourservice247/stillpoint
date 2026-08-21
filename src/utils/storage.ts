@@ -2,9 +2,10 @@ import type { BookRecord, LibraryEntry, LoadedBook, ReaderSettings } from "../ty
 import { inferProfile, PROFILE_PRESETS } from "./appearance";
 
 const DB_NAME = "stillpoint-reader";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const BOOKS_STORE = "books";
 const LIBRARY_STORE = "library";
+const VOICE_AUDIO_STORE = "voice-audio";
 const SETTINGS_KEY = "stillpoint:settings:v1";
 const CHECKPOINT_PREFIX = "stillpoint:checkpoint:";
 
@@ -99,11 +100,38 @@ export async function touchBook(id: string): Promise<void> {
 
 export async function deleteBook(id: string): Promise<void> {
   const database = await openDatabase();
-  const transaction = database.transaction([BOOKS_STORE, LIBRARY_STORE], "readwrite");
+  const transaction = database.transaction([BOOKS_STORE, LIBRARY_STORE, VOICE_AUDIO_STORE], "readwrite");
   transaction.objectStore(BOOKS_STORE).delete(id);
   transaction.objectStore(LIBRARY_STORE).delete(id);
+  const voiceStore = transaction.objectStore(VOICE_AUDIO_STORE);
+  const voiceIndex = voiceStore.index("bookId");
+  for (const key of await requestAsPromise<IDBValidKey[]>(voiceIndex.getAllKeys(id))) voiceStore.delete(key);
   await transactionDone(transaction);
   localStorage.removeItem(`${CHECKPOINT_PREFIX}${id}`);
+}
+
+export type CachedVoiceAudio = {
+  id: string;
+  bookId: string;
+  voice: string;
+  start: number;
+  end: number;
+  sampleRate: number;
+  samples: ArrayBuffer;
+  createdAt: number;
+};
+
+export async function getCachedVoiceAudio(id: string): Promise<CachedVoiceAudio | null> {
+  const database = await openDatabase();
+  const record = await requestAsPromise<CachedVoiceAudio | undefined>(database.transaction(VOICE_AUDIO_STORE, "readonly").objectStore(VOICE_AUDIO_STORE).get(id));
+  return record ?? null;
+}
+
+export async function saveCachedVoiceAudio(record: CachedVoiceAudio): Promise<void> {
+  const database = await openDatabase();
+  const transaction = database.transaction(VOICE_AUDIO_STORE, "readwrite");
+  transaction.objectStore(VOICE_AUDIO_STORE).put(record);
+  await transactionDone(transaction);
 }
 
 export function loadSettings(): ReaderSettings {
@@ -166,6 +194,10 @@ function openDatabase(): Promise<IDBDatabase> {
       if (!database.objectStoreNames.contains(LIBRARY_STORE)) {
         const store = database.createObjectStore(LIBRARY_STORE, { keyPath: "id" });
         store.createIndex("lastOpened", "lastOpened");
+      }
+      if (!database.objectStoreNames.contains(VOICE_AUDIO_STORE)) {
+        const store = database.createObjectStore(VOICE_AUDIO_STORE, { keyPath: "id" });
+        store.createIndex("bookId", "bookId");
       }
     };
     request.onsuccess = () => resolve(request.result);
