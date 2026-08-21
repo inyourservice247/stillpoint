@@ -6,13 +6,15 @@
     "node": ">=22.13.0"
   },
   "scripts": {
+    "predev": "vite build --config vite.kokoro.config.ts",
     "dev": "vinext dev",
-    "build": "vinext build",
+    "build": "vite build --config vite.kokoro.config.ts && vinext build",
     "start": "vinext start",
     "test": "node --import tsx --test tests/*.test.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
   },
   "dependencies": {
+    "kokoro-js": "^1.2.1",
     "react": "19.2.6",
     "react-dom": "19.2.6"
   },

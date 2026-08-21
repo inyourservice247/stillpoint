@@ -6,6 +6,7 @@ import { normalizeText } from "../src/utils/textNormalization";
 import { applyProfile, inferProfile, updateAppearance } from "../src/utils/appearance";
 import { findSentenceStart, getLengthMultiplier, getTemporaryWpm, getTokenDuration } from "../src/utils/timing";
 import { tokenizeText } from "../src/utils/tokenize";
+import { estimatedSpeechDuration, getSentenceChunk, normalizeVoiceRate, tokenIndexForBoundary } from "../src/utils/voice";
 
 const SAMPLE = `The organisation — however — continued operating.
 
@@ -42,6 +43,10 @@ const SETTINGS: ReaderSettings = {
   punctuationPauses: true,
   sentencePause: 260,
   commaPause: 90,
+  readingMode: "silent",
+  voiceRate: 1,
+  deviceVoice: "",
+  kokoroVoice: "af_heart",
 };
 
 test("normalizes messy TXT text without flattening paragraphs", () => {
@@ -134,4 +139,28 @@ test("sentence rewind uses precomputed sentence starts", () => {
   assert.deepEqual(document.sentenceStarts, [0, 2, 4]);
   assert.equal(findSentenceStart(document.sentenceStarts, 5), 4);
   assert.equal(findSentenceStart(document.sentenceStarts, 4), 2);
+});
+
+test("voice chunks preserve sentence token mapping and punctuation", () => {
+  const document = tokenizeText("Hello, decision-making world. Another sentence follows!");
+  const book = { tokens: document.tokens, sentenceStarts: document.sentenceStarts };
+  const first = getSentenceChunk(book as never, 1);
+  assert.equal(first.start, 0);
+  assert.equal(first.end, 2);
+  assert.equal(first.text, "Hello, decision-making world.");
+  assert.equal(tokenIndexForBoundary(first, first.tokenOffsets[1]), 1);
+  assert.equal(tokenIndexForBoundary(first, first.tokenOffsets[2]), 2);
+  const second = getSentenceChunk(book as never, 4);
+  assert.equal(second.start, 3);
+  assert.equal(second.end, 5);
+});
+
+test("voice fallback timing scales smoothly and clamps speed", () => {
+  const tokens = tokenizeText("the extraordinary self-regulation.").tokens;
+  const normal = estimatedSpeechDuration(tokens, 1, "device");
+  assert.ok(estimatedSpeechDuration(tokens, 2, "device") < normal);
+  assert.ok(estimatedSpeechDuration(tokens, 1, "kokoro") > normal);
+  assert.equal(normalizeVoiceRate(0.1), 0.6);
+  assert.equal(normalizeVoiceRate(1.26), 1.3);
+  assert.equal(normalizeVoiceRate(3), 2);
 });

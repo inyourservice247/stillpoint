@@ -6,6 +6,8 @@ import { updateBookProgress, writeCheckpoint } from "../utils/storage";
 import { ContextPreview } from "./ContextPreview";
 import { ReaderControls } from "./ReaderControls";
 import { Settings } from "./Settings";
+import { useVoicePlayback } from "../hooks/useVoicePlayback";
+import { normalizeVoiceRate } from "../utils/voice";
 
 type ReaderProps = {
   book: LoadedBook;
@@ -46,9 +48,30 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
     await updateBookProgress(book.id, index);
   }, [book.id]);
 
+  const setVoiceIndex = useCallback((index: number) => {
+    currentIndexRef.current = index;
+    setCurrentIndex(index);
+  }, []);
+
+  const finishVoicePlayback = useCallback(() => {
+    setPlaying(false);
+    queueMicrotask(persist);
+  }, [persist]);
+
+  const voicePlayback = useVoicePlayback({
+    book,
+    settings,
+    currentIndex,
+    onIndex: setVoiceIndex,
+    onFinish: finishVoicePlayback,
+  });
+
   const jumpTo = useCallback((nextIndex: number, pause = true) => {
     const clamped = Math.max(0, Math.min(Math.round(nextIndex), book.tokens.length - 1));
-    if (pause) setPlaying(false);
+    if (pause) {
+      setPlaying(false);
+      voicePlayback.cancel();
+    }
     currentIndexRef.current = clamped;
     setCurrentIndex(clamped);
     writeCheckpoint(book.id, clamped);
@@ -56,11 +79,12 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
     jumpSaveTimer.current = window.setTimeout(() => {
       void updateBookProgress(book.id, currentIndexRef.current);
     }, 220);
-  }, [book.id, book.tokens.length]);
+  }, [book.id, book.tokens.length, voicePlayback.cancel]);
 
   const togglePlay = useCallback(() => {
     if (playingRef.current) {
       setPlaying(false);
+      if (settings.readingMode !== "silent") voicePlayback.pause();
       void persist();
       return;
     }
@@ -68,12 +92,18 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
       currentIndexRef.current = 0;
       setCurrentIndex(0);
     }
-    setPlaying(true);
-  }, [book.tokens.length, persist]);
+    if (settings.readingMode === "silent" || voicePlayback.start()) setPlaying(true);
+  }, [book.tokens.length, persist, settings.readingMode, voicePlayback]);
 
   const changeWpm = useCallback((nextWpm: number) => {
     onSettingsChange({ ...settings, wpm: Math.max(100, Math.min(1000, Math.round(nextWpm / 10) * 10)) });
   }, [onSettingsChange, settings]);
+
+  const changeSetting = useCallback(<Key extends keyof ReaderSettings>(key: Key, value: ReaderSettings[Key]) => {
+    voicePlayback.cancel();
+    setPlaying(false);
+    onSettingsChange({ ...settings, [key]: value });
+  }, [onSettingsChange, settings, voicePlayback]);
 
   const toggleZen = useCallback(async () => {
     if (!zen) {
@@ -87,9 +117,10 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
 
   const leaveReader = useCallback(async () => {
     setPlaying(false);
+    voicePlayback.cancel();
     await persist();
     onExit();
-  }, [onExit, persist]);
+  }, [onExit, persist, voicePlayback]);
 
   useEffect(() => {
     const onResize = () => setViewportWidth(window.innerWidth);
@@ -104,7 +135,7 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
   }, []);
 
   useEffect(() => {
-    if (!playing || !token) return;
+    if (!playing || !token || settings.readingMode !== "silent") return;
     const timingSettings = {
       wpm: slowdownRef.current ? getTemporaryWpm(wpm) : wpm,
       longWordAssistance,
@@ -124,7 +155,7 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
       });
     }, getTokenDuration(token, timingSettings));
     return () => window.clearTimeout(timer);
-  }, [adaptiveTiming, book.tokens.length, commaPause, longWordAssistance, persist, playing, punctuationPauses, sentencePause, token, wpm]);
+  }, [adaptiveTiming, book.tokens.length, commaPause, longWordAssistance, persist, playing, punctuationPauses, sentencePause, settings.readingMode, token, wpm]);
 
   useEffect(() => {
     const now = Date.now();
@@ -188,7 +219,10 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
     const onVisibility = () => {
       if (document.visibilityState === "hidden") {
         checkpoint();
-        if (playingRef.current) setPlaying(false);
+        if (playingRef.current) {
+          setPlaying(false);
+          voicePlayback.cancel();
+        }
         void updateBookProgress(book.id, currentIndexRef.current);
       }
     };
@@ -201,7 +235,7 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
       document.removeEventListener("visibilitychange", onVisibility);
       checkpoint();
     };
-  }, [book.id]);
+  }, [book.id, voicePlayback.cancel]);
 
   const fontClass = `reader-font--${settings.fontFamily}`;
   const appearanceClasses = [
@@ -243,6 +277,16 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
       <ContextPreview tokens={book.tokens} currentIndex={currentIndex} visible={!playing} />
 
       <section className="reader-lower reader-chrome">
+        {settings.readingMode === "kokoro" && voicePlayback.kokoroStatus !== "ready" && (
+          <div className="kokoro-download" role="status">
+            <span>
+              <strong>Natural voice model</strong>
+              <small>{voicePlayback.kokoroStatus === "loading" ? `Downloading locally… ${Math.round(voicePlayback.kokoroProgress)}%` : "One-time local download. Book text never leaves this device."}</small>
+            </span>
+            {voicePlayback.kokoroStatus === "loading" ? <progress max="100" value={voicePlayback.kokoroProgress} /> : <button type="button" onClick={voicePlayback.prepareKokoro}>Download model</button>}
+          </div>
+        )}
+        {voicePlayback.error && <p className="voice-error" role="alert">{voicePlayback.error}</p>}
         <div className="progress-copy">
           <strong>{completionPercentage.toFixed(2)}%</strong>
           <span>{new Intl.NumberFormat().format(currentWordNumber)} / {new Intl.NumberFormat().format(book.tokens.length)}</span>
@@ -267,7 +311,18 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
           onTogglePlay={togglePlay}
           onNext={() => jumpTo(currentIndex + 1)}
           onWpmChange={changeWpm}
+          mode={settings.readingMode}
+          voiceRate={settings.voiceRate}
+          voices={voicePlayback.voices}
+          selectedVoice={settings.deviceVoice}
+          kokoroVoice={settings.kokoroVoice}
+          speechAvailable={voicePlayback.speechAvailable}
+          onModeChange={(mode) => changeSetting("readingMode", mode)}
+          onVoiceRateChange={(rate) => changeSetting("voiceRate", normalizeVoiceRate(rate))}
+          onDeviceVoiceChange={(voice) => changeSetting("deviceVoice", voice)}
+          onKokoroVoiceChange={(voice) => changeSetting("kokoroVoice", voice)}
         />
+        {settings.readingMode === "kokoro" && voicePlayback.kokoroStatus === "ready" && <button className="remove-model-button" type="button" onClick={() => void voicePlayback.removeKokoro()}>Remove downloaded voice model</button>}
       </section>
 
       {zen && <button className="zen-exit reader-chrome" type="button" onClick={() => void toggleZen()}>Exit Zen</button>}

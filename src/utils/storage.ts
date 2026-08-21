@@ -17,6 +17,10 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   punctuationPauses: true,
   sentencePause: 260,
   commaPause: 90,
+  readingMode: "silent",
+  voiceRate: 1,
+  deviceVoice: "",
+  kokoroVoice: "af_heart",
 };
 
 export async function listLibrary(): Promise<LibraryEntry[]> {

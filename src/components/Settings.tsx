@@ -5,6 +5,7 @@ import type {
   ReaderContrast,
   ReaderFont,
   ReaderProfile,
+  ReadingMode,
   ReaderSettings,
   ReaderTheme,
   ReaderWeight,
@@ -83,6 +84,11 @@ const ASSISTANCE_CHOICES: Array<Choice<LongWordAssistance>> = [
   { value: "high", label: "High" },
 ];
 const CONTRASTS: ReaderContrast[] = ["soft", "balanced", "crisp"];
+const MODE_CHOICES: Array<Choice<ReadingMode>> = [
+  { value: "silent", label: "Silent RSVP" },
+  { value: "device", label: "Voice + RSVP" },
+  { value: "kokoro", label: "Kokoro" },
+];
 
 export function Settings({ settings, onChange, onClose }: SettingsProps) {
   const set = <Key extends keyof ReaderSettings>(key: Key, value: ReaderSettings[Key]) => {
@@ -167,6 +173,10 @@ export function Settings({ settings, onChange, onClose }: SettingsProps) {
 
         <section className="settings-section" aria-labelledby="reading-heading">
           <h3 id="reading-heading">Reading</h3>
+          <div className="compact-setting compact-setting--stacked">
+            <span><strong>Reading mode</strong><small>Silent timing or voice-led RSVP</small></span>
+            <ChoiceGroup label="Reading mode" value={settings.readingMode} choices={MODE_CHOICES} onChange={(value) => set("readingMode", value)} />
+          </div>
           <div className="range-setting">
             <span><label htmlFor="setting-wpm"><strong>Speed</strong></label><small>{settings.wpm} words per minute</small></span>
             <input id="setting-wpm" type="range" min="100" max="1000" step="10" value={settings.wpm} onChange={(event) => set("wpm", Number(event.target.value))} />

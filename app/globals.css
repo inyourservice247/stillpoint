@@ -141,6 +141,28 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .progress-range::-webkit-slider-thumb { width: 10px; height: 10px; margin-top: -4px; appearance: none; border: 2px solid var(--bg); border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .progress-range::-moz-range-thumb { width: 8px; height: 8px; border: 2px solid var(--bg); border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .reader-controls { display: grid; grid-template-columns: 42px 116px 42px 1fr; align-items: center; justify-content: center; gap: 8px; width: min(410px, 100%); margin: 12px auto 0; }
+.reader-control-stack { width: min(620px, 100%); margin: 0 auto; }
+.reading-mode-switch { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; width: min(470px, 100%); margin: 8px auto 0; }
+.reading-mode-switch button { min-height: 32px; padding: 5px 8px; border: 1px solid var(--line); background: transparent; color: var(--muted); font: 700 9px var(--mono); cursor: pointer; }
+.reading-mode-switch button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
+.reading-mode-switch button:disabled { opacity: .35; cursor: not-allowed; }
+.voice-controls { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(210px, 1fr); gap: 12px; width: min(520px, 100%); margin: 9px auto 0; }
+.voice-controls label { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 8px; color: var(--muted); font: 9px var(--mono); }
+.voice-controls select { min-width: 0; height: 32px; padding: 0 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-size: 10px; }
+.voice-rate { grid-template-columns: auto 1fr auto !important; }
+.voice-rate input { width: 100%; accent-color: var(--accent); }
+.voice-rate output { min-width: 28px; color: var(--ink); }
+.voice-speed-readout { justify-self: end; display: flex; flex-direction: column; align-items: center; margin-left: 14px; }
+.voice-speed-readout strong { font: 700 13px var(--mono); }
+.voice-speed-readout span { color: var(--dim); font: 8px var(--mono); letter-spacing: .12em; }
+.kokoro-download { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 14px; max-width: 620px; margin: 0 auto 8px; padding: 10px 12px; border: 1px solid var(--line); background: var(--panel); }
+.kokoro-download span { display: flex; flex-direction: column; gap: 3px; }
+.kokoro-download strong { font-size: 11px; }
+.kokoro-download small { color: var(--muted); font-size: 9px; }
+.kokoro-download button { min-height: 34px; padding: 0 12px; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--ink); font-size: 10px; cursor: pointer; }
+.kokoro-download progress { width: 130px; accent-color: var(--accent); }
+.voice-error { max-width: 620px; margin: 0 auto 7px; color: var(--accent); font-size: 10px; text-align: center; }
+.remove-model-button { display: block; margin: 8px auto -8px; border: 0; background: transparent; color: var(--dim); font-size: 9px; text-decoration: underline; cursor: pointer; }
 .control-button { height: 42px; border: 1px solid var(--line); background: transparent; cursor: pointer; }
 .control-button--quiet { color: var(--muted); font-size: 17px; }
 .control-button--quiet:hover { color: var(--ink); }
@@ -237,6 +259,14 @@ kbd { margin: 0 2px; padding: 2px 5px; border: 1px solid var(--line); color: var
   .progress-copy span { justify-self: end; }
   .progress-copy small { display: none; }
   .reader-controls { grid-template-columns: 40px 108px 40px; }
+  .reading-mode-switch { margin-top: 6px; }
+  .reading-mode-switch button { font-size: 8px; }
+  .voice-controls { grid-template-columns: 1fr; gap: 7px; }
+  .voice-controls label { grid-template-columns: 42px 1fr; }
+  .voice-rate { grid-template-columns: 42px 1fr auto !important; }
+  .voice-speed-readout { grid-column: 1 / -1; justify-self: center; margin: 1px 0 -5px; }
+  .kokoro-download { grid-template-columns: 1fr; }
+  .kokoro-download button, .kokoro-download progress { width: 100%; }
   .wpm-stepper { grid-column: 1 / -1; justify-self: center; margin: 1px 0 -5px; }
   .settings-backdrop { padding: 8px; }
   .settings-panel { padding: 22px 18px; }

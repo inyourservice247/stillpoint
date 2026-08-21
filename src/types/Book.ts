@@ -8,6 +8,7 @@ export type ReaderWeight = 400 | 500 | 600 | 700;
 export type ReaderContrast = "soft" | "balanced" | "crisp";
 export type OrpIntensity = "subtle" | "normal" | "strong";
 export type FocusGuides = "off" | "minimal" | "strong";
+export type ReadingMode = "silent" | "device" | "kokoro";
 
 export type ReaderSettings = {
   wpm: number;
@@ -24,6 +25,10 @@ export type ReaderSettings = {
   punctuationPauses: boolean;
   sentencePause: number;
   commaPause: number;
+  readingMode: ReadingMode;
+  voiceRate: number;
+  deviceVoice: string;
+  kokoroVoice: string;
 };
 
 export type BookRecord = {
