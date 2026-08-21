@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ReaderSettings } from "../src/types/Book";
 import { getOrpIndex, splitAtOrp } from "../src/utils/orp";
-import { getOrpFit } from "../src/utils/orp";
 import { normalizeText } from "../src/utils/textNormalization";
 import { applyProfile, inferProfile, updateAppearance } from "../src/utils/appearance";
 import { findSentenceStart, getLengthMultiplier, getTemporaryWpm, getTokenDuration } from "../src/utils/timing";
@@ -163,17 +162,6 @@ test("voice fallback timing scales smoothly and clamps speed", () => {
   assert.equal(normalizeVoiceRate(0.1), 0.6);
   assert.equal(normalizeVoiceRate(1.26), 1.3);
   assert.equal(normalizeVoiceRate(3), 2);
-});
-
-test("mobile ORP fitting keeps the selected font size constant", () => {
-  const requestedSize = 72;
-  const shortWord = getOrpFit("the", requestedSize, 390);
-  const longWord = getOrpFit("electroencephalographically", requestedSize, 390);
-
-  assert.equal(shortWord.fontSize, requestedSize);
-  assert.equal(longWord.fontSize, requestedSize);
-  assert.equal(shortWord.sideScale, 1);
-  assert.ok(longWord.sideScale < 1);
 });
 
 test("device voice fallback advances continuously without browser boundaries", () => {

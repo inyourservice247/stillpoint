@@ -112,9 +112,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 
 .word-stage { position: relative; min-width: 0; overflow: hidden; border-bottom: 1px solid var(--line-soft); }
 .orp-word { position: absolute; z-index: 2; top: 50%; right: 0; left: 0; display: grid; grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr); align-items: baseline; transform: translateY(-53%); font-family: var(--reader-font); font-variant-ligatures: none; font-weight: var(--reader-weight); letter-spacing: -.045em; line-height: 1; white-space: pre; }
-.orp-left { min-width: 0; justify-self: end; color: var(--reader-word); text-align: right; transform: scaleX(var(--orp-side-scale, 1)); transform-origin: right center; }
+.orp-left { min-width: 0; justify-self: end; color: var(--reader-word); text-align: right; }
 .orp-focal { justify-self: center; color: var(--accent); font: inherit; text-align: center; transition: opacity .18s ease, color .18s ease; }
-.orp-right { min-width: 0; justify-self: start; color: var(--reader-word); text-align: left; transform: scaleX(var(--orp-side-scale, 1)); transform-origin: left center; }
+.orp-right { min-width: 0; justify-self: start; color: var(--reader-word); text-align: left; }
 .reader-orp--subtle .orp-focal { opacity: .68; }
 .reader-orp--normal .orp-focal { opacity: .92; }
 .reader-orp--strong .orp-focal { opacity: 1; }

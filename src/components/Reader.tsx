@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LoadedBook, ReaderSettings } from "../types/Book";
-import { getOrpFit, splitAtOrp } from "../utils/orp";
+import { splitAtOrp } from "../utils/orp";
 import { findSentenceStart, getTemporaryWpm, getTokenDuration } from "../utils/timing";
 import { updateBookProgress, writeCheckpoint } from "../utils/storage";
 import { ContextPreview } from "./ContextPreview";
@@ -22,7 +22,6 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
   const [showSettings, setShowSettings] = useState(false);
   const [zen, setZen] = useState(false);
   const [slowdownActive, setSlowdownActive] = useState(false);
-  const [viewportWidth, setViewportWidth] = useState(() => typeof window === "undefined" ? 1200 : window.innerWidth);
   const readerRef = useRef<HTMLElement>(null);
   const currentIndexRef = useRef(currentIndex);
   const playingRef = useRef(playing);
@@ -35,7 +34,6 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
   const { wpm, longWordAssistance, adaptiveTiming, punctuationPauses, sentencePause, commaPause } = settings;
   const barProgress = book.tokens.length <= 1 ? 100 : (currentIndex / (book.tokens.length - 1)) * 100;
   const parts = useMemo(() => splitAtOrp(token?.text ?? "", token?.orpIndex), [token]);
-  const orpFit = getOrpFit(token?.text ?? "", settings.fontSize, viewportWidth);
 
   useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
   useEffect(() => { playingRef.current = playing; }, [playing]);
@@ -139,12 +137,6 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
     await persist();
     onExit();
   }, [onExit, persist, voicePlayback]);
-
-  useEffect(() => {
-    const onResize = () => setViewportWidth(window.innerWidth);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
 
   useEffect(() => {
     const onFullscreenChange = () => { if (!document.fullscreenElement) setZen(false); };
@@ -306,7 +298,7 @@ export function Reader({ book, settings, onSettingsChange, onExit }: ReaderProps
 
       <section className="word-stage" aria-live="off" aria-label={`Current word: ${token?.cleanText ?? ""}`}>
         <span className="orp-tick orp-tick--top" aria-hidden="true" />
-        <div className="orp-word" data-testid="orp-word" style={{ fontSize: `${orpFit.fontSize}px`, "--orp-side-scale": orpFit.sideScale } as React.CSSProperties}>
+        <div className="orp-word" data-testid="orp-word" style={{ fontSize: `${settings.fontSize}px` }}>
           <span className="orp-left">{parts.left}</span>
           <b className="orp-focal" data-testid="orp-focal">{parts.focal}</b>
           <span className="orp-right">{parts.right}</span>

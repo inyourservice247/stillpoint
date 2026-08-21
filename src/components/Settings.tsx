@@ -268,7 +268,7 @@ export function Settings({ settings, onChange, onClose, voices, speechAvailable,
             <ChoiceGroup label="Font" value={settings.fontFamily} choices={FONT_CHOICES} onChange={(value) => setAppearance("fontFamily", value)} />
           </div>
           <div className="range-setting">
-            <span><label htmlFor="setting-font-size"><strong>Text size</strong></label><small>{settings.fontSize}px maximum</small></span>
+            <span><label htmlFor="setting-font-size"><strong>RSVP text size</strong></label><small>{settings.fontSize}px — exact size for every word</small></span>
             <div className="range-with-ends">
               <button type="button" onClick={() => setAppearance("fontSize", Math.max(36, settings.fontSize - 4))} aria-label="Decrease text size">A−</button>
               <input id="setting-font-size" type="range" min="36" max="112" step="2" value={settings.fontSize} onChange={(event) => setAppearance("fontSize", Number(event.target.value))} />
