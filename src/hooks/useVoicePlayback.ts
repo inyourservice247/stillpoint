@@ -44,6 +44,8 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const kokoroAudioCacheRef = useRef(new Map<string, Promise<{ samples: Float32Array; sampleRate: number }>>());
+  const kokoroReadyAudioRef = useRef(new Set<string>());
+  const kokoroSessionStartedRef = useRef(false);
 
   useEffect(() => { latestIndexRef.current = currentIndex; }, [currentIndex]);
 
@@ -72,6 +74,7 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
     audioSourceRef.current?.stop();
     audioSourceRef.current = null;
+    kokoroSessionStartedRef.current = false;
     setKokoroPlaybackStatus("idle");
     if (audioContextRef.current?.state === "suspended") void audioContextRef.current.resume();
   }, [clearTimers]);
@@ -223,18 +226,42 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
     const key = `${chunk.start}:${settings.kokoroVoice}:${settings.voiceRate}`;
     let audio = kokoroAudioCacheRef.current.get(key);
     if (!audio) {
-      audio = generateKokoro(chunk.text, settings.kokoroVoice, settings.voiceRate);
+      audio = generateKokoro(chunk.text, settings.kokoroVoice, settings.voiceRate).then((result) => {
+        kokoroReadyAudioRef.current.add(key);
+        return result;
+      });
       kokoroAudioCacheRef.current.set(key, audio);
-      void audio.catch(() => kokoroAudioCacheRef.current.delete(key));
+      void audio.catch(() => {
+        kokoroAudioCacheRef.current.delete(key);
+        kokoroReadyAudioRef.current.delete(key);
+      });
     }
     return audio;
   }, [book, generateKokoro, settings.kokoroVoice, settings.voiceRate]);
 
+  const isKokoroAudioReady = useCallback((index: number) => {
+    const chunk = getSentenceChunk(book, index);
+    return kokoroReadyAudioRef.current.has(`${chunk.start}:${settings.kokoroVoice}:${settings.voiceRate}`);
+  }, [book, settings.kokoroVoice, settings.voiceRate]);
+
+  const prefetchKokoro = useCallback((index: number, count: number) => {
+    const requests: Array<Promise<{ samples: Float32Array; sampleRate: number }>> = [];
+    let cursor = index;
+    for (let position = 0; position < count && cursor < book.tokens.length; position += 1) {
+      const chunk = getSentenceChunk(book, cursor);
+      requests.push(getKokoroAudio(cursor));
+      cursor = chunk.end + 1;
+    }
+    return requests;
+  }, [book, getKokoroAudio]);
+
   const playKokoroSentenceRef = useRef<(index: number, generation: number) => void>(() => undefined);
   playKokoroSentenceRef.current = (index, generation) => {
     const chunk = getSentenceChunk(book, index);
-    setKokoroPlaybackStatus("generating");
-    void getKokoroAudio(index).then(async ({ samples, sampleRate }) => {
+    const initialBuffer = !kokoroSessionStartedRef.current;
+    if (initialBuffer || !isKokoroAudioReady(index)) setKokoroPlaybackStatus("generating");
+    const buffered = initialBuffer ? Promise.all(prefetchKokoro(index, 2)).then(([audio]) => audio) : getKokoroAudio(index);
+    void buffered.then(async ({ samples, sampleRate }) => {
       if (generationRef.current !== generation || !activeRef.current) return;
       if (!(samples instanceof Float32Array) || samples.length === 0 || !Number.isFinite(sampleRate) || sampleRate <= 0) {
         throw new Error("Kokoro generated an empty audio buffer.");
@@ -255,8 +282,11 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
       audioSourceRef.current = source;
       scheduleLinearSync(chunk.start, chunk.end, buffer.duration * 1000, generation);
       source.start();
+      kokoroSessionStartedRef.current = true;
       setKokoroPlaybackStatus("playing");
-      if (chunk.end < book.tokens.length - 1) void getKokoroAudio(chunk.end + 1);
+      if (chunk.end < book.tokens.length - 1) {
+        for (const request of prefetchKokoro(chunk.end + 1, 3)) void request;
+      }
     }).catch((cause) => {
       if (generationRef.current !== generation) return;
       setKokoroPlaybackStatus("idle");
@@ -316,6 +346,8 @@ export function useVoicePlayback({ book, settings, currentIndex, onIndex, onFini
     for (const pending of pendingRef.current.values()) pending.reject(new Error("Model removed"));
     pendingRef.current.clear();
     kokoroAudioCacheRef.current.clear();
+    kokoroReadyAudioRef.current.clear();
+    kokoroSessionStartedRef.current = false;
     if ("caches" in window) {
       const keys = await caches.keys();
       await Promise.all(keys.filter((key) => /transformers|kokoro/i.test(key)).map((key) => caches.delete(key)));

@@ -4,6 +4,7 @@ import { KokoroTTS } from "kokoro-js";
 
 const MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX";
 let ttsPromise: Promise<KokoroTTS> | null = null;
+let generationQueue: Promise<void> = Promise.resolve();
 
 type WorkerRequest =
   | { type: "load" }
@@ -27,27 +28,37 @@ function loadModel(): Promise<KokoroTTS> {
 }
 
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
-  try {
-    if (event.data.type === "load") {
-      await loadModel();
-      return;
-    }
-    const tts = await loadModel();
-    const audio = await tts.generate(event.data.text, {
-      voice: event.data.voice as Parameters<typeof tts.generate>[1] extends { voice?: infer Voice } ? Voice : never,
-      speed: event.data.speed,
+  if (event.data.type === "generate") {
+    const request = event.data;
+    generationQueue = generationQueue.then(async () => {
+      try {
+        const tts = await loadModel();
+        const audio = await tts.generate(request.text, {
+          voice: request.voice as Parameters<typeof tts.generate>[1] extends { voice?: infer Voice } ? Voice : never,
+          speed: request.speed,
+        });
+        const samples = audio.audio as Float32Array;
+        self.postMessage({
+          type: "audio",
+          requestId: request.requestId,
+          samples,
+          sampleRate: audio.sampling_rate,
+        }, [samples.buffer]);
+      } catch (error) {
+        self.postMessage({
+          type: "error",
+          requestId: request.requestId,
+          message: error instanceof Error ? error.message : "Kokoro could not generate audio.",
+        });
+      }
     });
-    const samples = audio.audio as Float32Array;
-    self.postMessage({
-      type: "audio",
-      requestId: event.data.requestId,
-      samples,
-      sampleRate: audio.sampling_rate,
-    }, [samples.buffer]);
+    return;
+  }
+  try {
+    await loadModel();
   } catch (error) {
     self.postMessage({
       type: "error",
-      requestId: event.data.type === "generate" ? event.data.requestId : undefined,
       message: error instanceof Error ? error.message : "Kokoro could not generate audio.",
     });
   }
